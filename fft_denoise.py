@@ -722,6 +722,180 @@ def resolve_png(png_dir, plot_path):
 
 
 # --------------------------------------------------------------------------- #
+#  Peak detection & integration
+# --------------------------------------------------------------------------- #
+# np.trapz was renamed to np.trapezoid in NumPy 2.0; support both.
+_trapz = getattr(np, "trapezoid", None) or np.trapz
+
+
+def estimate_noise(y):
+    """Robust noise standard deviation from the median abs. deviation of the
+    first difference (insensitive to peaks and spikes)."""
+    d = np.diff(np.asarray(y, dtype=float))
+    mad = np.median(np.abs(d - np.median(d)))
+    return float(1.4826 * mad / np.sqrt(2)) or 1e-12
+
+
+def detect_peaks(x, y, sensitivity=8.0, min_dist_cm=8.0,
+                 min_width_cm=3.0, min_rel_height=0.03, max_peaks=40):
+    """Find peaks in a (cleaned) spectrum and propose integration windows.
+
+    sensitivity    peak prominence required, in units of the noise sigma.
+    min_dist_cm    minimum separation between peaks, in x units.
+    min_width_cm   minimum peak width, in x units.
+    min_rel_height keep only peaks at least this fraction as prominent as the
+                   tallest peak (0-1). Suppresses noise / FFT ripple sitting in
+                   the shadow of a dominant band. Set 0 to keep everything.
+
+    Returns (windows, sigma) where windows is a list of dicts {center, xl, xr}
+    sorted by centre, with edges at each peak's feet.
+    """
+    from scipy.signal import find_peaks, peak_widths
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    sigma = estimate_noise(y)
+    dx = float(np.median(np.diff(x)))
+    if dx <= 0:
+        dx = 1.0
+    distance = max(1, int(round(min_dist_cm / dx)))
+    width = max(1, int(round(min_width_cm / dx)))
+
+    idx, props = find_peaks(y, prominence=sensitivity * sigma,
+                            distance=distance, width=width)
+    if idx.size == 0:
+        return [], sigma
+
+    proms = props["prominences"]
+    if min_rel_height > 0 and proms.size:
+        keep = proms >= min_rel_height * proms.max()
+        idx, proms = idx[keep], proms[keep]
+    if idx.size > max_peaks:
+        order = np.argsort(proms)[::-1][:max_peaks]
+        idx = np.sort(idx[order])
+
+    _, _, left_ips, right_ips = peak_widths(y, idx, rel_height=0.9)
+    grid = np.arange(x.size)
+    windows = []
+    for k, i in enumerate(idx):
+        xl = float(np.interp(left_ips[k], grid, x))
+        xr = float(np.interp(right_ips[k], grid, x))
+        lo, hi = min(xl, xr), max(xl, xr)
+        windows.append({"center": float(x[i]), "xl": lo, "xr": hi})
+    windows.sort(key=lambda w: w["center"])
+    return windows, sigma
+
+
+def integrate_window(x, y, xl, xr, baseline="local_linear"):
+    """Integrate one spectrum between xl and xr.
+
+    baseline 'local_linear' subtracts the straight line joining the two window
+    endpoints (removes residual offset/tilt); 'zero' integrates above zero.
+
+    Returns (area, height, xs, ys, base) — area is the trapezoidal net area,
+    height is the tallest point above the baseline, and xs/ys/base describe the
+    window for plotting the shaded region.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    lo, hi = (xl, xr) if xl <= xr else (xr, xl)
+    m = (x >= lo) & (x <= hi)
+    if m.sum() < 2:
+        return 0.0, 0.0, x[m], y[m], np.zeros(int(m.sum()))
+    xs, ys = x[m], y[m]
+    if baseline == "local_linear":
+        base = np.interp(xs, [xs[0], xs[-1]], [ys[0], ys[-1]])
+    else:
+        base = np.zeros_like(xs)
+    area = float(_trapz(ys - base, xs))
+    height = float(np.max(ys - base))
+    return area, height, xs, ys, base
+
+
+def integrate_replicates(x, Y, windows, baseline="local_linear"):
+    """Integrate every window in every replicate over the same x ranges.
+
+    Returns a dict with 2-D arrays areas/heights (n_peaks x n_replicates) and
+    per-peak summary stats (mean, sd, rsd %) across replicates.
+    """
+    Y = Y if Y.ndim == 2 else Y[:, None]
+    n_peaks, k = len(windows), Y.shape[1]
+    areas = np.zeros((n_peaks, k))
+    heights = np.zeros((n_peaks, k))
+    for pi, w in enumerate(windows):
+        for j in range(k):
+            a, h, *_ = integrate_window(x, Y[:, j], w["xl"], w["xr"], baseline)
+            areas[pi, j] = a
+            heights[pi, j] = h
+    mean = areas.mean(axis=1) if n_peaks else np.array([])
+    if k > 1 and n_peaks:
+        sd = areas.std(axis=1, ddof=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            rsd = np.where(mean != 0, 100.0 * sd / np.abs(mean), np.nan)
+    else:
+        sd = np.zeros(n_peaks)
+        rsd = np.full(n_peaks, np.nan)
+    return {"areas": areas, "heights": heights,
+            "mean": mean, "sd": sd, "rsd": rsd}
+
+
+def plot_integration(x, Y, names, windows, baseline="local_linear",
+                     title=None, save_path=None, show=True):
+    """Publication-style figure: the cleaned spectra with each integration
+    window shaded above its local baseline, peaks labelled by centre."""
+    Y = Y if Y.ndim == 2 else Y[:, None]
+    k = Y.shape[1]
+    multi = k > 1
+    fig, ax = plt.subplots(figsize=(11, 5.5))
+
+    if multi and _HAVE_SEABORN:
+        colors = sns.color_palette("husl", k)
+    elif multi:
+        colors = [f"C{j}" for j in range(k)]
+    else:
+        colors = [C_CLEAN]
+
+    for j in range(k):
+        ax.plot(x, Y[:, j], lw=1.0, alpha=0.9 if multi else 1.0,
+                color=colors[j], label=names[j] if names else f"col {j}",
+                zorder=3)
+
+    # Reference spectrum for the shaded fills (mean across replicates).
+    yref = Y.mean(axis=1)
+    ymax = float(np.max(Y)) if Y.size else 1.0
+    for w in windows:
+        _, _, xs, _, _ = integrate_window(x, yref, w["xl"], w["xr"], baseline)
+        if xs.size < 2:
+            continue
+        _, _, xs, ys_ref, base = integrate_window(
+            x, yref, w["xl"], w["xr"], baseline)
+        ax.fill_between(xs, base, ys_ref, color=C_KEPT, alpha=0.22, zorder=2)
+        if baseline == "local_linear":
+            ax.plot([xs[0], xs[-1]], [base[0], base[-1]], color="0.45",
+                    lw=1.0, ls="--", zorder=2)
+        ax.annotate(f"{w['center']:.0f}",
+                    xy=(w["center"], ymax * 1.02),
+                    ha="center", va="bottom", fontsize=9, rotation=0,
+                    color="0.25")
+
+    ax.set_xlabel("Raman shift (cm⁻¹)")
+    ax.set_ylabel("intensity (a.u.)")
+    ax.set_title(title or "Integrated peaks", loc="left", fontweight="bold")
+    ax.margins(x=0.01)
+    ax.set_ylim(top=ymax * 1.10)
+    if multi:
+        ax.legend(loc="best", fontsize=8, ncol=2, frameon=True)
+    if _HAVE_SEABORN:
+        sns.despine(fig=fig)
+    if save_path:
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    if show and matplotlib.get_backend().lower() != "agg":
+        plt.show()
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- #
 #  CLI
 # --------------------------------------------------------------------------- #
 def main(argv=None):

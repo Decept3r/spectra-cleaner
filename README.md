@@ -1,10 +1,17 @@
-# SERS / Raman Spectra Cleaner
+# SERS / Raman Spectra Toolkit
 
-A web app for cleaning SERS / Raman spectra: removes cosmic-ray (muon) spikes,
-resamples onto a uniform grid, corrects the fluorescence baseline, and FFT
-denoises — with live diagnostic plots and a one-click cleaned-CSV download.
+A web app for cleaning SERS / Raman spectra and integrating their peaks, with
+live diagnostic plots and exports. The same code also runs as a command-line
+tool (`fft_denoise.py`).
 
-The same code also runs as a command-line tool (`fft_denoise.py`).
+Two tabs:
+
+1. **Clean & preprocess** — remove cosmic-ray (muon) spikes, resample onto a
+   uniform grid, baseline-correct, and FFT denoise.
+2. **Peak integration** — auto-detect peaks, then adjust any integration window
+   by *dragging a box across it on the plot* or editing the table. Get per-peak
+   areas, cross-replicate mean +/- SD and %RSD (a reproducibility readout), and
+   area ratios between bands.
 
 ## Input format
 
@@ -18,10 +25,13 @@ Wavelength,S1,S2,S3,S4
 ...
 ```
 
-## Use it on the web
+## Exports
 
-Open the deployed app (Streamlit Community Cloud), upload a CSV, adjust the
-controls on the left, and download the cleaned data. No installation needed.
+- **Cleaned data + integration (CSV)** — one file with processing metadata, the
+  peak-integration table (areas, stats, heights), and the full cleaned spectra,
+  in clearly marked sections.
+- **Annotated figure (PNG)** — the cleaned spectra with shaded integration
+  regions and labelled peaks.
 
 ## Run it locally
 
@@ -46,6 +56,6 @@ Run `python fft_denoise.py --help` for all options.
 
 | File | Purpose |
 |------|---------|
-| `streamlit_app.py` | Web interface (the engine, wrapped in a UI) |
-| `fft_denoise.py`   | Processing engine + command-line tool |
-| `requirements.txt` | Dependencies for deployment |
+| streamlit_app.py | Web interface (cleaning + integration tabs) |
+| fft_denoise.py   | Processing engine + command-line tool |
+| requirements.txt | Dependencies for deployment |
