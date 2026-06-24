@@ -1,4 +1,5 @@
 streamlit>=1.39
+streamlit-drawable-canvas==0.9.3
 numpy
 scipy
 matplotlib
@@ -6,3 +7,4 @@ pandas
 seaborn
 pybaselines
 plotly
+pillow
