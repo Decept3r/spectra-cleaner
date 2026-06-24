@@ -21,7 +21,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
-from streamlit_drawable_canvas import st_canvas
 
 import fft_denoise as fd
 
@@ -172,83 +171,46 @@ def make_plotly(x, Y, names, peaks):
         fig.add_annotation(x=w["center"], y=ymax, text=f"{w['center']:.0f}",
                            showarrow=False, yshift=10, font=dict(size=11))
     fig.update_layout(
-        margin=dict(l=10, r=10, t=30, b=10), height=340,
+        dragmode="select", selectdirection="h",
+        margin=dict(l=10, r=10, t=30, b=10), height=480,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
         xaxis_title="Raman shift (cm⁻¹)", yaxis_title="intensity (a.u.)")
     return fig
 
 
-# ---- drawable-canvas helpers (data <-> canvas pixels) --------------------- #
-CANVAS_W, CANVAS_H = 720, 380
+# ---- table <-> peaks helpers --------------------------------------------- #
+def peaks_to_df(peaks):
+    return pd.DataFrame([
+        {"Center (cm⁻¹)": round(p["center"], 1),
+         "Start (cm⁻¹)": round(p["xl"], 1),
+         "End (cm⁻¹)": round(p["xr"], 1)} for p in peaks])
 
 
-def _data_to_px(v, lo, hi, size):
-    if hi <= lo:
-        return 0.0
-    return (float(v) - lo) / (hi - lo) * size
-
-
-def _px_to_data(px, lo, hi, size):
-    if size <= 0:
-        return lo
-    return lo + (float(px) / size) * (hi - lo)
-
-
-def canvas_initial(x, yref, peaks, xmin, xmax, ymin, ymax):
-    """Fabric.js JSON: the (mean) spectrum as a locked polyline plus one
-    editable, full-height rectangle per integration window."""
-    n = len(x)
-    step = max(1, n // CANVAS_W)
-    xs = x[::step]
-    ys = yref[::step]
-    pts = [{"x": round(_data_to_px(xi, xmin, xmax, CANVAS_W), 2),
-            "y": round(CANVAS_H - _data_to_px(yi, ymin, ymax, CANVAS_H), 2)}
-           for xi, yi in zip(xs, ys)]
-    top = min(p["y"] for p in pts) if pts else 0.0
-    objects = [{
-        "type": "polyline", "left": 0.0, "top": top, "points": pts,
-        "stroke": "#7a7a7a", "strokeWidth": 1, "fill": "",
-        "selectable": False, "evented": False, "objectCaching": False}]
-    for w in peaks:
-        left = _data_to_px(w["xl"], xmin, xmax, CANVAS_W)
-        right = _data_to_px(w["xr"], xmin, xmax, CANVAS_W)
-        objects.append({
-            "type": "rect", "left": round(left, 2), "top": 0.0,
-            "width": round(max(2.0, right - left), 2), "height": CANVAS_H,
-            "fill": "rgba(55,138,221,0.18)", "stroke": "#185FA5",
-            "strokeWidth": 1, "scaleX": 1, "scaleY": 1, "angle": 0,
-            "selectable": True, "lockMovementY": True, "lockScalingY": True,
-            "lockRotation": True, "hasRotatingPoint": False})
-    return {"version": "4.4.0", "objects": objects}
-
-
-def canvas_to_peaks(json_data, x, yref, xmin, xmax):
-    """Read rectangle objects back from the canvas into integration windows
-    (accounts for Fabric resize via scaleX; ignores the locked curve)."""
-    peaks = []
-    for obj in (json_data or {}).get("objects", []):
-        if obj.get("type") != "rect":
+def df_to_peaks(df, x, yref):
+    """Validate an edited table back into a peak list (drops bad rows,
+    recomputes each centre as the tallest point inside the window)."""
+    out = []
+    for _, r in df.iterrows():
+        try:
+            xl, xr = float(r["Start (cm⁻¹)"]), float(r["End (cm⁻¹)"])
+        except (TypeError, ValueError):
             continue
-        left = float(obj.get("left", 0.0))
-        width = float(obj.get("width", 0.0)) * float(obj.get("scaleX", 1) or 1)
-        x0 = _px_to_data(left, xmin, xmax, CANVAS_W)
-        x1 = _px_to_data(left + width, xmin, xmax, CANVAS_W)
-        x0, x1 = max(xmin, min(x0, x1)), min(xmax, max(x0, x1))
-        if x1 - x0 < (xmax - xmin) * 0.002:        # ignore slivers
+        if not (np.isfinite(xl) and np.isfinite(xr)) or xr <= xl:
             continue
-        m = (x >= x0) & (x <= x1)
-        center = float(x[m][np.argmax(yref[m])]) if m.any() else 0.5 * (x0 + x1)
-        peaks.append({"center": center, "xl": x0, "xr": x1})
-    peaks.sort(key=lambda w: w["center"])
-    return peaks
+        m = (x >= xl) & (x <= xr)
+        center = float(x[m][np.argmax(yref[m])]) if m.any() else 0.5 * (xl + xr)
+        out.append({"center": center, "xl": xl, "xr": xr})
+    out.sort(key=lambda w: w["center"])
+    return out
 
 
 # --------------------------------------------------------------------------- #
 #  Integration tab
 # --------------------------------------------------------------------------- #
 def integration_tab(x, Y, names, x_col, clean_params):
-    st.caption("Auto-detect peaks, then fine-tune any window by **dragging a "
-               "box across it on the plot** or editing the table. Areas update "
+    st.caption("Auto-detect peaks, then adjust any window by **dragging across "
+               "it on the plot** (resizes/moves the nearest box) or editing the "
+               "table. The plot's own toolbar has zoom & pan. Areas update "
                "instantly.")
 
     c1, c2, c3, c4, c5 = st.columns([1.2, 1.1, 1.0, 1.2, 0.9])
@@ -260,80 +222,69 @@ def integration_tab(x, Y, names, x_col, clean_params):
                                 "tallest peak — suppresses noise/ripple.")
     min_dist = c3.number_input("Min gap (cm⁻¹)", 1.0, 300.0, 8.0, 1.0)
     baseline_mode = c4.selectbox(
-        "Integration baseline", ["local_linear", "zero"],
-        format_func=lambda v: "Local linear" if v == "local_linear"
-        else "From zero")
+        "Integration baseline", ["zero", "local_linear"],
+        format_func=lambda v: "From zero" if v == "zero" else "Local linear")
     detect = c5.button("Auto-detect", use_container_width=True)
 
     yref = Y.mean(axis=1)
-
-    # canvas geometry / data->pixel ranges
-    xmin, xmax = float(np.min(x)), float(np.max(x))
-    ymin = float(min(0.0, np.min(Y))) if Y.size else 0.0
-    ymax = float(np.max(Y)) * 1.05 if Y.size else 1.0
-    if ymax <= ymin:
-        ymax = ymin + 1.0
 
     if "peaks" not in st.session_state or detect:
         wins, _ = fd.detect_peaks(x, yref, sensitivity=sens,
                                   min_dist_cm=min_dist,
                                   min_rel_height=min_height / 100.0)
         st.session_state.peaks = wins
-        st.session_state.canvas_ver = st.session_state.get("canvas_ver", 0) + 1
+        st.session_state.editor_ver = st.session_state.get("editor_ver", 0) + 1
+        st.session_state.pop("_last_box", None)
+
+    st.markdown("**Edit windows on the plot.** Choose what a drag does, then "
+                "drag across a peak. To zoom or pan instead, use the chart's "
+                "toolbar (top-right) — its magnifier and ✋ buttons.")
+    mode = st.radio("A drag on the plot will:",
+                    ["Resize / move the nearest box", "Add a new box"],
+                    horizontal=True)
+
+    # apply a box-drag captured from the previous render (before drawing plot)
+    prev = st.session_state.get("specplot")
+    try:
+        xs = prev["selection"]["box"][0]["x"]
+    except (TypeError, KeyError, IndexError):
+        xs = None
+    if xs and len(xs) >= 2:
+        x0, x1 = float(min(xs)), float(max(xs))
+        sig = (round(x0, 2), round(x1, 2), mode)
+        if st.session_state.get("_last_box") != sig and x1 > x0:
+            st.session_state._last_box = sig
+            peaks = st.session_state.peaks
+            if mode.startswith("Resize") and peaks:
+                centers = np.array([p["center"] for p in peaks])
+                k = int(np.argmin(np.abs(centers - 0.5 * (x0 + x1))))
+                peaks[k]["xl"], peaks[k]["xr"] = x0, x1
+                m = (x >= x0) & (x <= x1)
+                if m.any():
+                    peaks[k]["center"] = float(x[m][np.argmax(yref[m])])
+            else:
+                m = (x >= x0) & (x <= x1)
+                center = float(x[m][np.argmax(yref[m])]) if m.any() \
+                    else 0.5 * (x0 + x1)
+                peaks.append({"center": center, "xl": x0, "xr": x1})
+                peaks.sort(key=lambda w: w["center"])
+            st.session_state.editor_ver += 1
 
     peaks = st.session_state.peaks
 
-    st.markdown("**Edit the windows directly on the plot** — drag a box to "
-                "move it, pull its side handles to resize, or select it and "
-                "hit the trash icon to delete. Switch to **Add** to draw a new "
-                "window.")
-    tool = st.radio("Tool", ["Move / resize", "Add window"],
-                    horizontal=True, label_visibility="collapsed")
-    draw_mode = "transform" if tool.startswith("Move") else "rect"
-
-    canvas = st_canvas(
-        fill_color="rgba(55,138,221,0.18)", stroke_color="#185FA5",
-        stroke_width=1, background_color="#ffffff",
-        height=CANVAS_H, width=CANVAS_W, drawing_mode=draw_mode,
-        display_toolbar=True, update_streamlit=True,
-        initial_drawing=canvas_initial(x, yref, peaks, xmin, xmax, ymin, ymax),
-        key=f"canvas_{st.session_state.canvas_ver}")
-    st.caption("Box heights don't matter — only the left/right edges set the "
-               "integration range. The grey trace is the mean spectrum; the "
-               "zoomable overview below shows every replicate.")
-
-    if canvas is not None and canvas.json_data is not None:
-        st.session_state.peaks = canvas_to_peaks(
-            canvas.json_data, x, yref, xmin, xmax)
-        peaks = st.session_state.peaks
-
-    # precise numeric override (discrete -> re-seeds the canvas)
-    if peaks:
-        with st.expander("Type exact bounds for a window"):
-            labels = [f"{w['center']:.0f} cm⁻¹  ({w['xl']:.0f}–{w['xr']:.0f})"
-                      for w in peaks]
-            q1, q2, q3, q4 = st.columns([2.2, 1, 1, 1])
-            sel = q1.selectbox("Window", range(len(peaks)),
-                               format_func=lambda i: labels[i], key="exact_sel")
-            sel = min(sel, len(peaks) - 1)
-            nxl = q2.number_input("Start", value=round(peaks[sel]["xl"], 1),
-                                  step=1.0, key=f"exl_{sel}")
-            nxr = q3.number_input("End", value=round(peaks[sel]["xr"], 1),
-                                  step=1.0, key=f"exr_{sel}")
-            q4.markdown("<div style='height:1.7em'></div>",
-                        unsafe_allow_html=True)
-            if q4.button("Apply", use_container_width=True) and nxr > nxl:
-                peaks[sel]["xl"], peaks[sel]["xr"] = float(nxl), float(nxr)
-                m = (x >= nxl) & (x <= nxr)
-                if m.any():
-                    peaks[sel]["center"] = float(x[m][np.argmax(yref[m])])
-                st.session_state.peaks = peaks
-                st.session_state.canvas_ver += 1
-                st.rerun()
-
-    # --- accurate overview (zoom / hover, every replicate) ---
+    # interactive plot — a drag draws a horizontal selection box (read above)
     st.plotly_chart(make_plotly(x, Y, names, peaks),
-                    use_container_width=True, key="overview")
+                    use_container_width=True, key="specplot", on_select="rerun")
+
+    # editable table: type exact bounds, or use the +/trash row controls
+    st.markdown("**Windows** — type exact bounds, or use the row controls to "
+                "add / delete.")
+    edited = st.data_editor(
+        peaks_to_df(peaks), num_rows="dynamic", use_container_width=True,
+        hide_index=True, disabled=["Center (cm⁻¹)"],
+        key=f"peak_editor_{st.session_state.editor_ver}")
+    st.session_state.peaks = df_to_peaks(edited, x, yref)
+    peaks = st.session_state.peaks
 
     # --- integrate ---
     result = fd.integrate_replicates(x, Y, peaks, baseline=baseline_mode)
@@ -380,8 +331,9 @@ def integration_tab(x, Y, names, x_col, clean_params):
                 st.caption(f"Mean ratio {np.mean(ratios):.3f} ± "
                            f"{np.std(ratios, ddof=1):.3f}")
     else:
-        st.info("No peaks yet — click **Auto-detect**, or switch to **Add** "
-                "and draw a window on the plot.")
+        st.info("No peaks yet — click **Auto-detect**, switch the drag mode to "
+                "**Add a new box** and drag on the plot, or add a row in the "
+                "table.")
 
     # --- exports ---
     st.divider()
@@ -482,7 +434,7 @@ def main():
     # Reset peak state when a different file is loaded.
     if st.session_state.get("_file") != up.name:
         st.session_state._file = up.name
-        for k in ("peaks", "canvas_ver"):
+        for k in ("peaks", "editor_ver", "_last_box"):
             st.session_state.pop(k, None)
 
     try:
