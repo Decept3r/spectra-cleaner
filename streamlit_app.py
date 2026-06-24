@@ -25,59 +25,15 @@ import streamlit as st
 import plotly.graph_objects as go
 from PIL import Image
 
-# streamlit-drawable-canvas calls streamlit.elements.image.image_to_url to turn
-# the canvas background into a served URL. In recent Streamlit that helper moved
-# to streamlit.elements.lib.image_utils and changed signature (its 2nd argument
-# became a LayoutConfig, which isn't importable), so the canvas's original call
-# crashes. We replace streamlit.elements.image.image_to_url with a small shim
-# that reproduces what the genuine helper does for a PIL image: register the PNG
-# bytes with Streamlit's media file manager and return the real, served
-# "/media/<id>.png" URL.
-#
-# Returning a served path (not a base64 "data:" URI) is essential. The canvas
-# frontend builds the background <img> source as
-#       e.src = <streamlit-origin> + <this URL>      (see "n + h" in its JS)
-# For "/media/<id>.png" that yields a valid "http://host/media/<id>.png".
-# For a "data:" URI it yields the broken "http://hostdata:image/png;base64,..."
-# which the browser cannot load -- which is why the spectrum never appeared
-# behind the boxes. Registering with the media file manager is exactly what the
-# real image_to_url did, so the served URL behaves identically across versions.
-import streamlit.elements.image as _st_image
-from streamlit import runtime as _st_runtime
-
-
-def _image_to_url(image, *args, **kwargs):
-    """Register a PIL image with Streamlit's media file manager and return its
-    served "/media/<id>.png" URL -- a drop-in for the canvas's call
-    image_to_url(image, width, clamp, channels, output_format, image_id)."""
-    # The image_id (used as the media file's "coordinates") is the last
-    # positional argument in drawable-canvas's call.
-    image_id = kwargs.get("image_id")
-    if image_id is None and args:
-        image_id = args[-1]
-    image_id = image_id or "drawable-canvas-bg"
-
-    buf = io.BytesIO()
-    image.save(buf, format="PNG")
-    data = buf.getvalue()
-
-    if _st_runtime.exists():
-        url = _st_runtime.get_instance().media_file_mgr.add(
-            data, "image/png", image_id)
-        # Mirror genuine image_to_url so the file survives cache replays.
-        try:
-            from streamlit.runtime import caching as _st_caching
-            _st_caching.save_media_data(data, "image/png", image_id)
-        except Exception:
-            pass
-        return url
-    # No runtime (bare / raw mode): fall back to a data URI.
-    return "data:image/png;base64," + base64.b64encode(data).decode()
-
-
-_st_image.image_to_url = _image_to_url
-
-from streamlit_drawable_canvas import st_canvas   # noqa: E402
+# This app uses a small custom Streamlit component (declared at the bottom of
+# this block) that renders the spectrum as a real Plotly chart and lets the
+# user edit integration windows as native, draggable Plotly rectangle shapes.
+# That avoids streamlit-drawable-canvas's background-image mechanism entirely
+# (it painted the spectrum onto the canvas via a one-shot drawImage that Fabric
+# wiped on its next re-render, so the spectrum kept disappearing), and it needs
+# no canvas-pixel<->wavenumber mapping: Plotly shapes live in data coords.
+import shutil                                      # noqa: E402
+import streamlit.components.v1 as components       # noqa: E402
 
 import matplotlib.pyplot as plt                    # noqa: E402
 from matplotlib.ticker import MaxNLocator          # noqa: E402
@@ -237,77 +193,45 @@ def make_plotly(x, Y, names, peaks):
     return fig
 
 
-# ---- drawable-canvas helpers --------------------------------------------- #
-CANVAS_W, CANVAS_H = 760, 380
+# ---- Plotly editable-window component ------------------------------------ #
+_EDITOR_HTML = '<!doctype html>\n<html>\n<head>\n<meta charset="utf-8"/>\n<script src="./plotly.min.js" onerror="(function(){var s=document.createElement(\'script\');s.src=\'https://cdn.plot.ly/plotly-2.35.2.min.js\';document.head.appendChild(s);})()"></script>\n<style>html,body{margin:0;padding:0;overflow:hidden}#c{width:100%}</style>\n</head>\n<body>\n<div id="c"></div>\n<script>\nfunction post(type, extra){ var m = Object.assign({isStreamlitMessage:true, type:type}, extra||{}); window.parent.postMessage(m, "*"); }\nvar Streamlit = {\n  ready:  function(){ post("streamlit:componentReady", {apiVersion:1}); },\n  height: function(h){ post("streamlit:setFrameHeight", {height:h}); },\n  value:  function(v){ post("streamlit:setComponentValue", {value:v, dataType:"json"}); }\n};\nvar GD=null, programmatic=false;\nvar PALETTE=["#1f77b4","#ff7f0e","#2ca02c","#d62728","#9467bd","#8c564b","#e377c2","#17becf"];\n\nfunction currentShapes(){\n  var sh = (GD && GD.layout && GD.layout.shapes) || [];\n  return sh.map(function(s){ var a=Math.min(+s.x0,+s.x1), b=Math.max(+s.x0,+s.x1); return {x0:a, x1:b}; });\n}\nfunction wire(){\n  GD.on("plotly_relayout", function(ev){\n    if(programmatic) return;\n    var keys = Object.keys(ev||{});\n    var touched = keys.some(function(k){ return k.indexOf("shapes")>=0; });\n    if(!touched) return;                       // ignore zoom/autorange, react only to shape edits\n    Streamlit.value({shapes: currentShapes(), ts: Date.now()});\n  });\n}\nfunction build(args, theme){\n  args = args || {};\n  var x = args.x||[], ys = args.ys||[], names = args.names||[], wins = args.windows||[], mode = args.mode||"edit";\n  var dark = !!(theme && theme.base === "dark");\n  var bg = (theme && theme.backgroundColor) || (dark ? "#0e1117" : "#ffffff");\n  var fg = (theme && theme.textColor) || (dark ? "#fafafa" : "#262730");\n  var grid = dark ? "rgba(250,250,250,0.13)" : "rgba(0,0,0,0.09)";\n  var traces = ys.map(function(yy, j){\n    return {x:x, y:yy, type:"scatter", mode:"lines", name:(names[j]||("col "+j)),\n            line:{width:1.3, color:PALETTE[j % PALETTE.length]}, hoverinfo:"x+y+name"};\n  });\n  var shapes = wins.map(function(w){\n    return {type:"rect", xref:"x", yref:"paper", x0:w.x0, x1:w.x1, y0:0, y1:1,\n            fillcolor:"rgba(55,138,221,0.16)", line:{color:"rgba(55,138,221,0.7)", width:1},\n            layer:"above", editable:true};\n  });\n  var layout = {\n    margin:{l:58, r:14, t:10, b:42}, height:430, hovermode:"closest",\n    showlegend:true, legend:{orientation:"h", y:1.02, yanchor:"bottom", x:0, font:{color:fg}},\n    paper_bgcolor:bg, plot_bgcolor:bg, font:{color:fg},\n    xaxis:{title:{text:"Raman shift (cm⁻¹)"}, gridcolor:grid, zeroline:false, color:fg, fixedrange:true},\n    yaxis:{title:{text:"intensity (a.u.)"}, gridcolor:grid, zeroline:false, color:fg, fixedrange:true},\n    shapes:shapes,\n    dragmode: (mode === "add") ? "drawrect" : false,\n    newshape:{line:{color:"rgba(55,138,221,0.7)", width:1}, fillcolor:"rgba(55,138,221,0.16)", layer:"above"}\n  };\n  var config = {displaylogo:false, responsive:true, edits:{shapePosition:true},\n                modeBarButtonsToAdd:["drawrect","eraseshape"],\n                modeBarButtonsToRemove:["lasso2d","select2d","autoScale2d","zoom2d","zoomIn2d","zoomOut2d"]};\n  programmatic = true;\n  Plotly.react("c", traces, layout, config).then(function(){\n    if(!GD._wired){ wire(); GD._wired = true; }\n    setTimeout(function(){ programmatic = false; }, 80);\n    Streamlit.height(442);\n  });\n}\nwindow.addEventListener("message", function(e){\n  var d = e.data; if(!d || d.type !== "streamlit:render") return;\n  GD = document.getElementById("c");\n  build(d.args, d.theme);\n});\nStreamlit.ready();\n</script>\n</body>\n</html>\n'
 
 
-def _data_to_px(v, lo, hi, size):
-    return 0.0 if hi <= lo else (float(v) - lo) / (hi - lo) * size
+@st.cache_resource(show_spinner=False)
+def _editor_component():
+    """Materialise (once) a tiny static frontend dir and declare the bidirectional
+    Plotly editor component. plotly.min.js is copied from the installed plotly
+    package so the component works offline; a CDN load is the fallback."""
+    import plotly as _plotly
+    base = os.path.join(tempfile.gettempdir(), "raman_window_editor_v1")
+    os.makedirs(base, exist_ok=True)
+    js_dst = os.path.join(base, "plotly.min.js")
+    js_src = os.path.join(os.path.dirname(_plotly.__file__),
+                          "package_data", "plotly.min.js")
+    try:
+        if os.path.isfile(js_src) and (
+                not os.path.exists(js_dst)
+                or os.path.getsize(js_dst) != os.path.getsize(js_src)):
+            shutil.copyfile(js_src, js_dst)
+    except OSError:
+        pass
+    with open(os.path.join(base, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(_EDITOR_HTML)
+    return components.declare_component("raman_window_editor", path=base)
 
 
-def _px_to_data(px, lo, hi, size):
-    return lo if size <= 0 else lo + (float(px) / size) * (hi - lo)
-
-
-def render_spectrum_png(x, Y, names, xmin, xmax, ymin, ymax):
-    """Render the spectra to a CANVAS_W x CANVAS_H image whose plot area fills
-    the whole frame, so canvas pixels map linearly to data coordinates. Used as
-    the (static) background the editable boxes sit on."""
-    dpi = 100
-    fig = plt.figure(figsize=(CANVAS_W / dpi, CANVAS_H / dpi), dpi=dpi)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_xlim(xmin, xmax)
-    ax.set_ylim(ymin, ymax)
-    for g in MaxNLocator(8).tick_values(xmin, xmax):
-        if xmin <= g <= xmax:
-            ax.axvline(g, color="0.88", lw=0.8, zorder=0)
-            ax.text(g, ymin + 0.015 * (ymax - ymin), f"{g:.0f}", fontsize=7,
-                    color="0.55", ha="center", va="bottom", zorder=1)
-    ax.axhline(0, color="0.82", lw=0.8, zorder=0)
-    k = Y.shape[1]
-    if k > 1 and getattr(fd, "_HAVE_SEABORN", False):
-        colors = fd.sns.color_palette("husl", k)
-    else:
-        colors = [f"C{j}" for j in range(k)]
-    for j in range(k):
-        ax.plot(x, Y[:, j], lw=0.9, color=colors[j], zorder=2)
-    ax.axis("off")
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi, facecolor="white")
-    plt.close(fig)
-    buf.seek(0)
-    return Image.open(buf).convert("RGB")
-
-
-def canvas_rects(peaks, xmin, xmax):
-    """Fabric.js JSON of one full-height, horizontally-editable rectangle per
-    window (edges resize the x-range, body moves it; rotation/vertical locked)."""
-    objects = []
-    for w in peaks:
-        left = _data_to_px(w["xl"], xmin, xmax, CANVAS_W)
-        right = _data_to_px(w["xr"], xmin, xmax, CANVAS_W)
-        objects.append({
-            "type": "rect", "left": round(left, 2), "top": 0.0,
-            "width": round(max(2.0, right - left), 2), "height": CANVAS_H,
-            "fill": "rgba(55,138,221,0.16)", "stroke": "#185FA5",
-            "strokeWidth": 1, "scaleX": 1, "scaleY": 1, "angle": 0,
-            "selectable": True, "lockMovementY": True, "lockScalingY": True,
-            "lockRotation": True, "hasRotatingPoint": False})
-    return {"version": "4.4.0", "objects": objects}
-
-
-def canvas_to_peaks(json_data, x, yref, xmin, xmax):
-    """Read rectangle objects back into windows (handles Fabric resize via
-    scaleX; recomputes each centre; ignores slivers)."""
+def _shapes_to_peaks(shapes, x, yref, xmin, xmax):
+    """Turn the Plotly rectangle shapes returned by the editor (x0/x1 in cm^-1)
+    back into integration windows; recompute each centre and ignore slivers --
+    mirrors the old canvas_to_peaks contract so downstream code is unchanged."""
     peaks = []
-    for obj in (json_data or {}).get("objects", []):
-        if obj.get("type") != "rect":
+    for s in shapes or []:
+        try:
+            x0, x1 = float(s.get("x0")), float(s.get("x1"))
+        except (TypeError, ValueError):
             continue
-        left = float(obj.get("left", 0.0))
-        width = float(obj.get("width", 0.0)) * float(obj.get("scaleX", 1) or 1)
-        x0 = _px_to_data(left, xmin, xmax, CANVAS_W)
-        x1 = _px_to_data(left + width, xmin, xmax, CANVAS_W)
-        x0, x1 = max(xmin, min(x0, x1)), min(xmax, max(x0, x1))
+        x0, x1 = min(x0, x1), max(x0, x1)
+        x0, x1 = max(xmin, x0), min(xmax, x1)
         if x1 - x0 < (xmax - xmin) * 0.002:
             continue
         m = (x >= x0) & (x <= x1)
@@ -355,28 +279,38 @@ def integration_tab(x, Y, names, x_col, clean_params):
 
     peaks = st.session_state.peaks
 
-    tool = st.radio("Tool", ["Edit boxes (move / resize / delete)",
-                             "Add a new box"], horizontal=True,
-                    label_visibility="collapsed")
-    draw_mode = "transform" if tool.startswith("Edit") else "rect"
+    tool = st.radio("Tool", ["Edit windows (drag edge = resize, body = move)",
+                             "Add a new window (draw on the plot)"],
+                    horizontal=True, label_visibility="collapsed")
+    mode = "edit" if tool.startswith("Edit") else "add"
 
-    canvas = st_canvas(
-        background_image=render_spectrum_png(x, Y, names, xmin, xmax,
-                                             ymin, ymax),
-        fill_color="rgba(55,138,221,0.16)", stroke_color="#185FA5",
-        stroke_width=1, height=CANVAS_H, width=CANVAS_W,
-        drawing_mode=draw_mode, display_toolbar=True, update_streamlit=True,
-        initial_drawing=canvas_rects(peaks, xmin, xmax),
-        key=f"canvas_{st.session_state.canvas_ver}")
-    st.caption("Only a box's left/right edges set the integration range "
-               "(height is ignored). In **Edit** mode: click a box, then drag a "
-               "side handle to resize or its body to move; the 🗑 in the toolbar "
-               "beneath the plot deletes the selected box.")
+    editor = _editor_component()
+    ret = editor(
+        x=x.astype(float).tolist(),
+        ys=[Y[:, j].astype(float).tolist() for j in range(Y.shape[1])],
+        names=list(names),
+        windows=[{"x0": float(w["xl"]), "x1": float(w["xr"])} for w in peaks],
+        mode=mode, seed=int(st.session_state.canvas_ver),
+        key="raman_window_editor", default=None)
+    st.caption("Drag a window\u2019s **edge** to resize or its **body** to move; "
+               "edits update the table live. In **Add** mode, drag across the plot "
+               "to draw a new window. Delete a window with the chart toolbar\u2019s "
+               "**eraser** icon, or via the expander below. Only the left/right "
+               "bounds set the integration range.")
 
-    if canvas is not None and canvas.json_data is not None:
-        st.session_state.peaks = canvas_to_peaks(
-            canvas.json_data, x, yref, xmin, xmax)
-        peaks = st.session_state.peaks
+    if isinstance(ret, dict) and ret.get("ts") and \
+            ret.get("ts") != st.session_state.get("_editor_ts"):
+        st.session_state._editor_ts = ret["ts"]
+        prev_n = len(st.session_state.peaks)
+        new_peaks = _shapes_to_peaks(ret.get("shapes", []), x, yref, xmin, xmax)
+        st.session_state.peaks = new_peaks
+        peaks = new_peaks
+        # Re-seed the chart only when a window was added/removed, so it snaps to
+        # clean full-height bands (a resize/move keeps the on-screen shape as-is).
+        if len(new_peaks) != prev_n:
+            st.session_state.canvas_ver += 1
+            st.rerun()
+    peaks = st.session_state.peaks
 
     # precise numeric entry (discrete -> re-seeds the canvas)
     if peaks:
@@ -398,6 +332,12 @@ def integration_tab(x, Y, names, x_col, clean_params):
                 m = (x >= nxl) & (x <= nxr)
                 if m.any():
                     peaks[sel]["center"] = float(x[m][np.argmax(yref[m])])
+                st.session_state.peaks = peaks
+                st.session_state.canvas_ver += 1
+                st.rerun()
+            if st.button("\U0001F5D1 Delete this window", key=f"del_{sel}",
+                         use_container_width=True):
+                peaks.pop(sel)
                 st.session_state.peaks = peaks
                 st.session_state.canvas_ver += 1
                 st.rerun()
