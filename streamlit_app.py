@@ -25,17 +25,54 @@ import streamlit as st
 import plotly.graph_objects as go
 from PIL import Image
 
-# streamlit-drawable-canvas calls streamlit.elements.image.image_to_url, whose
-# location and signature changed in recent Streamlit, which breaks the canvas
-# background image. Replace it with a small self-contained version that returns
-# a base64 data URI, so the component keeps working across Streamlit versions.
+# streamlit-drawable-canvas calls streamlit.elements.image.image_to_url to turn
+# the canvas background into a served URL. In recent Streamlit that helper moved
+# to streamlit.elements.lib.image_utils and changed signature (its 2nd argument
+# became a LayoutConfig, which isn't importable), so the canvas's original call
+# crashes. We replace streamlit.elements.image.image_to_url with a small shim
+# that reproduces what the genuine helper does for a PIL image: register the PNG
+# bytes with Streamlit's media file manager and return the real, served
+# "/media/<id>.png" URL.
+#
+# Returning a served path (not a base64 "data:" URI) is essential. The canvas
+# frontend builds the background <img> source as
+#       e.src = <streamlit-origin> + <this URL>      (see "n + h" in its JS)
+# For "/media/<id>.png" that yields a valid "http://host/media/<id>.png".
+# For a "data:" URI it yields the broken "http://hostdata:image/png;base64,..."
+# which the browser cannot load -- which is why the spectrum never appeared
+# behind the boxes. Registering with the media file manager is exactly what the
+# real image_to_url did, so the served URL behaves identically across versions.
 import streamlit.elements.image as _st_image
+from streamlit import runtime as _st_runtime
 
 
 def _image_to_url(image, *args, **kwargs):
+    """Register a PIL image with Streamlit's media file manager and return its
+    served "/media/<id>.png" URL -- a drop-in for the canvas's call
+    image_to_url(image, width, clamp, channels, output_format, image_id)."""
+    # The image_id (used as the media file's "coordinates") is the last
+    # positional argument in drawable-canvas's call.
+    image_id = kwargs.get("image_id")
+    if image_id is None and args:
+        image_id = args[-1]
+    image_id = image_id or "drawable-canvas-bg"
+
     buf = io.BytesIO()
     image.save(buf, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    data = buf.getvalue()
+
+    if _st_runtime.exists():
+        url = _st_runtime.get_instance().media_file_mgr.add(
+            data, "image/png", image_id)
+        # Mirror genuine image_to_url so the file survives cache replays.
+        try:
+            from streamlit.runtime import caching as _st_caching
+            _st_caching.save_media_data(data, "image/png", image_id)
+        except Exception:
+            pass
+        return url
+    # No runtime (bare / raw mode): fall back to a data URI.
+    return "data:image/png;base64," + base64.b64encode(data).decode()
 
 
 _st_image.image_to_url = _image_to_url
