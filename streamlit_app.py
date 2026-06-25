@@ -17,6 +17,7 @@ os.environ.setdefault("MPLBACKEND", "Agg")   # headless rendering before fd impo
 import base64
 import datetime as _dt
 import io
+import hashlib
 import tempfile
 
 import numpy as np
@@ -203,7 +204,8 @@ def _editor_component():
     Plotly editor component. plotly.min.js is copied from the installed plotly
     package so the component works offline; a CDN load is the fallback."""
     import plotly as _plotly
-    base = os.path.join(tempfile.gettempdir(), "raman_window_editor_v1")
+    ver = hashlib.md5(_EDITOR_HTML.encode("utf-8")).hexdigest()[:8]
+    base = os.path.join(tempfile.gettempdir(), "raman_window_editor_" + ver)
     os.makedirs(base, exist_ok=True)
     js_dst = os.path.join(base, "plotly.min.js")
     js_src = os.path.join(os.path.dirname(_plotly.__file__),
@@ -217,7 +219,7 @@ def _editor_component():
         pass
     with open(os.path.join(base, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(_EDITOR_HTML)
-    return components.declare_component("raman_window_editor", path=base)
+    return components.declare_component("raman_window_editor_" + ver, path=base)
 
 
 def _shapes_to_peaks(shapes, x, yref, xmin, xmax):
