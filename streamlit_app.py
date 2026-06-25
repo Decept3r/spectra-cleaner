@@ -553,6 +553,14 @@ def main():
         for j, n in enumerate(names):
             out[n] = Y_clean[:, j]
         st.dataframe(out.head(15), use_container_width=True)
+        st.caption(
+            f"Showing the first 15 of {len(out):,} rows — download the "
+            "full cleaned dataset (every row, all spectra) below.")
+        st.download_button(
+            "⬇️ Cleaned data (CSV — all rows)",
+            data=out.to_csv(index=False).encode("utf-8"),
+            file_name=f"{os.path.splitext(up.name)[0]}_cleaned.csv",
+            mime="text/csv", key="dl_cleaned_only")
 
     with tab_integrate:
         integration_tab(x_work, Y_clean, names, x_col, params)
