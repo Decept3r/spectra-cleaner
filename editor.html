@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="./plotly.min.js" onerror="(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()"></script>
+<style>html,body{margin:0;padding:0;height:442px}#c{width:100%;height:430px}</style>
+</head>
+<body>
+<div id="c"></div>
+<script>
+function post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,"*");}
+var Streamlit={ready:function(){post("streamlit:componentReady",{apiVersion:1});},height:function(h){post("streamlit:setFrameHeight",{height:h});},value:function(v){post("streamlit:setComponentValue",{value:v,dataType:"json"});}};
+var GD=null,programmatic=false,lastSeed=null,lastKey=null,wired=false,clickWired=false;
+var eraserOn=false,lastArgs=null,lastTheme=null;
+var PALETTE=["#C42348","#2456C8","#7B2FB0","#C01C8E","#4A35C4","#9C2A9E","#E0567A","#3E7BD6"];
+var FILL="rgba(123,47,176,0.16)",LINE="rgba(123,47,176,0.85)";
+var FILL_E="rgba(214,39,40,0.16)",LINE_E="rgba(214,39,40,0.90)";
+function band(x0,x1){return {type:"rect",xref:"x",yref:"paper",x0:x0,x1:x1,y0:0,y1:1,fillcolor:(eraserOn?FILL_E:FILL),line:{color:(eraserOn?LINE_E:LINE),width:1.5},layer:"above",editable:!eraserOn};}
+function winShapes(wins){return (wins||[]).map(function(w){return band(w.x0,w.x1);});}
+function rawShapes(){var sh=(GD&&GD.layout&&GD.layout.shapes)||[];return sh.map(function(s){return band(s.x0,s.x1);});}
+function shapeKey(){var sh=(GD&&GD.layout&&GD.layout.shapes)||[];return sh.map(function(s){return Math.round(Math.min(+s.x0,+s.x1))+":"+Math.round(Math.max(+s.x0,+s.x1));}).sort().join(",");}
+function sendShapes(){var sh=(GD&&GD.layout&&GD.layout.shapes)||[];var out=sh.map(function(s){var a=Math.min(+s.x0,+s.x1),b=Math.max(+s.x0,+s.x1);return {x0:a,x1:b};});lastKey=shapeKey();Streamlit.value({shapes:out,ts:Date.now()});}
+function wire(){GD.on("plotly_relayout",function(){if(programmatic)return;if(shapeKey()!==lastKey){sendShapes();}});}
+function eraseAt(e){if(!eraserOn||!GD||!GD._fullLayout)return;if(GD._fullLayout.dragmode==="drawrect")return;var bb=GD.getBoundingClientRect(),xa=GD._fullLayout.xaxis,ya=GD._fullLayout.yaxis;if(!xa||!ya)return;var px=e.clientX-bb.left-xa._offset,py=e.clientY-bb.top-ya._offset;if(px<0||px>xa._length||py<0||py>ya._length)return;var xd=xa.p2d(px),sh=(GD.layout.shapes||[]);for(var i=0;i<sh.length;i++){var a=Math.min(+sh[i].x0,+sh[i].x1),b=Math.max(+sh[i].x0,+sh[i].x1);if(xd>=a&&xd<=b){var ns=sh.slice();ns.splice(i,1);programmatic=true;Plotly.relayout(GD,{shapes:ns}).then(function(){setTimeout(function(){programmatic=false;},80);sendShapes();});return;}}}
+function rerender(){if(lastArgs)build(lastArgs,lastTheme);}
+function build(args,theme){
+  if(typeof Plotly==="undefined"){setTimeout(function(){build(args,theme);},60);return;}
+  GD=document.getElementById("c");args=args||{};lastArgs=args;lastTheme=theme;
+  var x=args.x||[],ys=args.ys||[],names=args.names||[],wins=args.windows||[],seed=args.seed;
+  var dark=!!(theme&&theme.base==="dark");
+  var bg=(theme&&theme.backgroundColor)||(dark?"#0e1117":"#ffffff");
+  var fg=(theme&&theme.textColor)||(dark?"#fafafa":"#262730");
+  var grid=dark?"rgba(250,250,250,0.13)":"rgba(0,0,0,0.09)";
+  var traces=ys.map(function(yy,j){return {x:x,y:yy,type:"scatter",mode:"lines",name:(names[j]||("col "+j)),line:{width:1.3,color:PALETTE[j%PALETTE.length]},hoverinfo:"x+y+name"};});
+  var reseed=(seed!==lastSeed)||!wired;
+  var shapes=reseed?winShapes(wins):rawShapes();
+  var layout={margin:{l:58,r:14,t:10,b:42},height:430,hovermode:"closest",showlegend:true,legend:{orientation:"h",y:1.02,yanchor:"bottom",x:0,font:{color:fg}},paper_bgcolor:bg,plot_bgcolor:bg,font:{color:fg,family:"Space Grotesk, system-ui, sans-serif"},xaxis:{title:{text:"Raman shift (cm⁻¹)"},gridcolor:grid,zeroline:false,color:fg,fixedrange:true},yaxis:{title:{text:"intensity (a.u.)"},gridcolor:grid,zeroline:false,color:fg,fixedrange:true},shapes:shapes,dragmode:false,newshape:{line:{color:LINE,width:1.5},fillcolor:FILL,layer:"above"}};
+  var eraserBtn={name:"eraser",title:"Eraser - click a window to delete it",icon:(Plotly.Icons&&Plotly.Icons.eraseshape)||Plotly.Icons.pencil,toggle:true,click:function(){eraserOn=!eraserOn;rerender();}};
+  var config={displaylogo:false,responsive:true,edits:{shapePosition:!eraserOn},modeBarButtonsToAdd:["drawrect",eraserBtn],modeBarButtonsToRemove:["lasso2d","select2d","autoScale2d","zoom2d","zoomIn2d","zoomOut2d","pan2d","eraseshape"]};
+  programmatic=true;
+  Plotly.react("c",traces,layout,config).then(function(){
+    if(!wired){wire();wired=true;}
+    if(!clickWired){GD.addEventListener("click",eraseAt,true);clickWired=true;}
+    GD.style.cursor=eraserOn?"crosshair":"";
+    if(reseed){lastSeed=seed;lastKey=shapeKey();}
+    setTimeout(function(){programmatic=false;},120);
+    Streamlit.height(442);
+  });
+}
+window.addEventListener("message",function(e){var d=e.data;if(!d||d.type!=="streamlit:render")return;build(d.args,d.theme);});
+Streamlit.ready();
+</script>
+</body>
+</html>

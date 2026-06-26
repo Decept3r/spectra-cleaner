@@ -39,6 +39,9 @@ import matplotlib.pyplot as plt                    # noqa: E402
 from matplotlib.ticker import MaxNLocator          # noqa: E402
 
 import fft_denoise as fd                           # noqa: E402
+import nanomeli_theme as theme                     # noqa: E402
+
+theme.apply_matplotlib_theme()
 
 
 # --------------------------------------------------------------------------- #
@@ -172,7 +175,9 @@ def build_combined_csv(x_col, x, Y, names, peaks, result, baseline_mode, params)
 
 
 # ---- Plotly editable-window component ------------------------------------ #
-_EDITOR_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>html,body{margin:0;padding:0;height:442px}#c{width:100%;height:430px}</style>\n</head>\n<body>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});},value:function(v){post(\"streamlit:setComponentValue\",{value:v,dataType:\"json\"});}};\nvar GD=null,programmatic=false,lastSeed=null,lastKey=null,wired=false,clickWired=false;\nvar eraserOn=false,lastArgs=null,lastTheme=null;\nvar PALETTE=[\"#1f77b4\",\"#ff7f0e\",\"#2ca02c\",\"#d62728\",\"#9467bd\",\"#8c564b\",\"#e377c2\",\"#17becf\"];\nvar FILL=\"rgba(55,138,221,0.18)\",LINE=\"rgba(55,138,221,0.85)\";\nvar FILL_E=\"rgba(214,39,40,0.16)\",LINE_E=\"rgba(214,39,40,0.90)\";\nfunction band(x0,x1){return {type:\"rect\",xref:\"x\",yref:\"paper\",x0:x0,x1:x1,y0:0,y1:1,fillcolor:(eraserOn?FILL_E:FILL),line:{color:(eraserOn?LINE_E:LINE),width:1.5},layer:\"above\",editable:!eraserOn};}\nfunction winShapes(wins){return (wins||[]).map(function(w){return band(w.x0,w.x1);});}\nfunction rawShapes(){var sh=(GD&&GD.layout&&GD.layout.shapes)||[];return sh.map(function(s){return band(s.x0,s.x1);});}\nfunction shapeKey(){var sh=(GD&&GD.layout&&GD.layout.shapes)||[];return sh.map(function(s){return Math.round(Math.min(+s.x0,+s.x1))+\":\"+Math.round(Math.max(+s.x0,+s.x1));}).sort().join(\",\");}\nfunction sendShapes(){var sh=(GD&&GD.layout&&GD.layout.shapes)||[];var out=sh.map(function(s){var a=Math.min(+s.x0,+s.x1),b=Math.max(+s.x0,+s.x1);return {x0:a,x1:b};});lastKey=shapeKey();Streamlit.value({shapes:out,ts:Date.now()});}\nfunction wire(){GD.on(\"plotly_relayout\",function(){if(programmatic)return;if(shapeKey()!==lastKey){sendShapes();}});}\nfunction eraseAt(e){if(!eraserOn||!GD||!GD._fullLayout)return;if(GD._fullLayout.dragmode===\"drawrect\")return;var bb=GD.getBoundingClientRect(),xa=GD._fullLayout.xaxis,ya=GD._fullLayout.yaxis;if(!xa||!ya)return;var px=e.clientX-bb.left-xa._offset,py=e.clientY-bb.top-ya._offset;if(px<0||px>xa._length||py<0||py>ya._length)return;var xd=xa.p2d(px),sh=(GD.layout.shapes||[]);for(var i=0;i<sh.length;i++){var a=Math.min(+sh[i].x0,+sh[i].x1),b=Math.max(+sh[i].x0,+sh[i].x1);if(xd>=a&&xd<=b){var ns=sh.slice();ns.splice(i,1);programmatic=true;Plotly.relayout(GD,{shapes:ns}).then(function(){setTimeout(function(){programmatic=false;},80);sendShapes();});return;}}}\nfunction rerender(){if(lastArgs)build(lastArgs,lastTheme);}\nfunction build(args,theme){\n  if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}\n  GD=document.getElementById(\"c\");args=args||{};lastArgs=args;lastTheme=theme;\n  var x=args.x||[],ys=args.ys||[],names=args.names||[],wins=args.windows||[],seed=args.seed;\n  var dark=!!(theme&&theme.base===\"dark\");\n  var bg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");\n  var fg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");\n  var grid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";\n  var traces=ys.map(function(yy,j){return {x:x,y:yy,type:\"scatter\",mode:\"lines\",name:(names[j]||(\"col \"+j)),line:{width:1.3,color:PALETTE[j%PALETTE.length]},hoverinfo:\"x+y+name\"};});\n  var reseed=(seed!==lastSeed)||!wired;\n  var shapes=reseed?winShapes(wins):rawShapes();\n  var layout={margin:{l:58,r:14,t:10,b:42},height:430,hovermode:\"closest\",showlegend:true,legend:{orientation:\"h\",y:1.02,yanchor:\"bottom\",x:0,font:{color:fg}},paper_bgcolor:bg,plot_bgcolor:bg,font:{color:fg},xaxis:{title:{text:\"Raman shift (cm\u207b\u00b9)\"},gridcolor:grid,zeroline:false,color:fg,fixedrange:true},yaxis:{title:{text:\"intensity (a.u.)\"},gridcolor:grid,zeroline:false,color:fg,fixedrange:true},shapes:shapes,dragmode:false,newshape:{line:{color:LINE,width:1.5},fillcolor:FILL,layer:\"above\"}};\n  var eraserBtn={name:\"eraser\",title:\"Eraser - click a window to delete it\",icon:(Plotly.Icons&&Plotly.Icons.eraseshape)||Plotly.Icons.pencil,toggle:true,click:function(){eraserOn=!eraserOn;rerender();}};\n  var config={displaylogo:false,responsive:true,edits:{shapePosition:!eraserOn},modeBarButtonsToAdd:[\"drawrect\",eraserBtn],modeBarButtonsToRemove:[\"lasso2d\",\"select2d\",\"autoScale2d\",\"zoom2d\",\"zoomIn2d\",\"zoomOut2d\",\"pan2d\",\"eraseshape\"]};\n  programmatic=true;\n  Plotly.react(\"c\",traces,layout,config).then(function(){\n    if(!wired){wire();wired=true;}\n    if(!clickWired){GD.addEventListener(\"click\",eraseAt,true);clickWired=true;}\n    GD.style.cursor=eraserOn?\"crosshair\":\"\";\n    if(reseed){lastSeed=seed;lastKey=shapeKey();}\n    setTimeout(function(){programmatic=false;},120);\n    Streamlit.height(442);\n  });\n}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
+with open(os.path.join(os.path.dirname(__file__), "editor.html"),
+          encoding="utf-8") as _fh:
+    _EDITOR_HTML = _fh.read()
 _EDITOR_VER = hashlib.md5(_EDITOR_HTML.encode("utf-8")).hexdigest()[:8]
 
 
@@ -447,18 +452,9 @@ def sidebar_controls():
 #  Main
 # --------------------------------------------------------------------------- #
 def main():
-    st.set_page_config(page_title="Spectra toolkit", page_icon="🔬",
-                       layout="wide")
-    st.title("🔬 SERS / Raman spectra toolkit")
-    st.markdown("""<style>
-    .block-container{padding-top:2rem;padding-bottom:3rem}
-    h1{font-weight:700;letter-spacing:-0.01em}
-    .stTabs [data-baseweb="tab-list"]{gap:1.4rem}
-    .stTabs [data-baseweb="tab"]{font-weight:600}
-    .stDownloadButton button,.stButton button{border-radius:8px;font-weight:600}
-    [data-testid="stMetric"]{background:rgba(128,128,128,0.06);border:1px solid rgba(128,128,128,0.14);border-radius:12px;padding:0.5rem 0.9rem}
-    [data-testid="stExpander"] details{border-radius:10px}
-    </style>""", unsafe_allow_html=True)
+    st.set_page_config(page_title="Nanomeli · Spectra toolkit",
+                       page_icon="🔬", layout="wide")
+    theme.render_header()
 
     up, params = sidebar_controls()
 
