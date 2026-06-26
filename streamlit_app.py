@@ -449,6 +449,234 @@ def sidebar_controls():
 
 
 # --------------------------------------------------------------------------- #
+#  Stepwise "apply each step" pipeline (Clean tab)
+# --------------------------------------------------------------------------- #
+STEP_ORDER = ["despike", "resample", "baseline", "fft"]
+STEP_LABEL = {"despike": "1 \u00b7 Despike", "resample": "2 \u00b7 Resample",
+              "baseline": "3 \u00b7 Baseline", "fft": "4 \u00b7 FFT denoise"}
+STEP_BLURB = {"despike": "Remove cosmic-ray spikes",
+              "resample": "Interpolate onto a uniform grid",
+              "baseline": "Subtract the fluorescence background",
+              "fft": "FFT-denoise each replicate"}
+
+
+def _param_summary(key, p):
+    if key == "despike":
+        return (f"z-threshold {p['d_threshold']:g} \u00b7 max width "
+                f"{p['d_maxwidth']} \u00b7 floor {p['d_prominence']:g}\u03c3")
+    if key == "resample":
+        return f"{p['r_method']} \u00b7 spacing {'auto' if not p['r_step'] else p['r_step']}"
+    if key == "baseline":
+        return f"{p['b_method']} \u00b7 {fd.baseline_param_label(p['b_method'], p['b_lam'], p['b_poly'])}"
+    if key == "fft":
+        tail = (f"cutoff {p['f_cutoff']:g}" if p['f_method'] == 'lowpass'
+                else f"n\u00b7\u03c3 {p['f_nsigma']:g}")
+        return f"{p['f_method']} \u00b7 {tail}"
+    return ""
+
+
+def apply_stage(idx, x, Y, names, p, plot_dir):
+    """Apply ONE cleaning stage to the current working data. Returns
+    (x2, Y2, plot_entry_or_None, messages, applied_bool). Reuses the exact
+    fft_denoise functions -- no science changes."""
+    key = STEP_ORDER[idx]
+    msgs, plot = [], None
+    if key == "despike":
+        if not p["despike"]:
+            return x, Y, None, msgs, False
+        Y2, flags, counts = fd.apply_despike(
+            Y, p["d_threshold"], p["d_maxwidth"], p["d_prominence"])
+        path = os.path.join(plot_dir, "despike.png")
+        fd.plot_despike(x, Y, flags, Y2, names, p["d_threshold"],
+                        p["d_maxwidth"], save_path=path, show=False)
+        per = ", ".join(f"{n}: {c}" for n, c in zip(names, counts))
+        plot = (STEP_LABEL[key],
+                (path, f"Removed {int(sum(counts))} spike point(s) \u2014 {per}."))
+        return x, Y2, plot, msgs, True
+    if key == "resample":
+        if not (p["resample"] and x is not None):
+            return x, Y, None, msgs, False
+        step = p["r_step"] if (p["r_step"] and p["r_step"] > 0) else None
+        x2, Y2, step_used = fd.resample_uniform(
+            x, Y, method=p["r_method"], step=step)
+        msgs.append(("info", f"Resampled onto a uniform grid "
+                             f"(spacing = {step_used:.4g}, {len(x2)} points)."))
+        return x2, Y2, None, msgs, True
+    if key == "baseline":
+        if not p["baseline"]:
+            return x, Y, None, msgs, False
+        Y2, B = fd.apply_baseline(x, Y, p["b_method"], lam=p["b_lam"],
+                                  poly_order=p["b_poly"])
+        label = fd.baseline_param_label(p["b_method"], p["b_lam"], p["b_poly"])
+        path = os.path.join(plot_dir, "baseline.png")
+        fd.plot_baseline(x, Y, B, Y2, names, p["b_method"], label,
+                         save_path=path, show=False)
+        plot = (STEP_LABEL[key], (path, f"Method: {p['b_method']} ({label}). "
+                                  f"The dashed line threads the background."))
+        return x, Y2, plot, msgs, True
+    if key == "fft":
+        if not p["fft"]:
+            return x, Y, None, msgs, False
+        fs = None
+        if x is not None:
+            dx = np.diff(x)
+            if np.all(dx > 0):
+                fs = 1.0 / np.mean(dx)
+        notch = p["f_notch_freqs"] if p["f_method"] == "notch" else None
+        Y2 = np.empty_like(Y)
+        first = None
+        for j in range(Y.shape[1]):
+            yj, info = fd.denoise(
+                Y[:, j], fs, method=p["f_method"], threshold="auto",
+                n_sigma=p["f_nsigma"],
+                cutoff=p["f_cutoff"] if p["f_method"] == "lowpass" else None,
+                notch_freqs=notch, notch_width=p["f_notchwidth"])
+            Y2[:, j] = yj
+            if j == 0:
+                first = info
+        path = os.path.join(plot_dir, "denoise.png")
+        fd.plot_results(x, Y, Y2, names, first, save_path=path, show=False)
+        plot = (STEP_LABEL[key],
+                (path, f"Kept {first['n_kept']}/{first['n_total']} frequency "
+                       f"components (replicate 1)."))
+        return x, Y2, plot, msgs, True
+    return x, Y, None, msgs, False
+
+
+def _reset_pipeline(x, Y, fname):
+    ss = st.session_state
+    ss._pipe_file = fname
+    ss.pipe_stage = 0
+    ss.pipe_x = x
+    ss.pipe_Y = Y
+    ss.pipe_plots = {}
+    ss.pipe_msgs = []
+    ss.pipe_status = []
+    if "pipe_plotdir" not in ss:
+        ss.pipe_plotdir = tempfile.mkdtemp()
+
+
+def stepwise_clean(x, Y, names, x_col, p, fname):
+    """Per-step pipeline UI. Returns (x_work, Y_work, names)."""
+    ss = st.session_state
+    if ss.get("_pipe_file") != fname or "pipe_stage" not in ss:
+        _reset_pipeline(x, Y, fname)
+    stage = ss.pipe_stage
+
+    st.markdown(
+        "<div style=\"display:flex;align-items:center;justify-content:space-between;"
+        "margin:2px 0 8px\"><div style=\"font:600 12px 'Space Grotesk';"
+        "letter-spacing:.14em;text-transform:uppercase;color:#7B2FB0\">Live spectrum"
+        "</div><div style=\"font:700 13px 'Space Mono';color:#9A92A6\">stage "
+        f"{min(stage, 4)} / 4</div></div>", unsafe_allow_html=True)
+    try:
+        st.plotly_chart(theme.neon_spectrum_fig(ss.pipe_x, ss.pipe_Y, names,
+                                                 stage=stage),
+                        use_container_width=True, theme=None,
+                        config={"displayModeBar": False})
+    except Exception:
+        pass
+
+    chips = []
+    for i, key in enumerate(STEP_ORDER):
+        if i < stage:
+            state = ss.pipe_status[i] if i < len(ss.pipe_status) else "applied"
+        elif i == stage:
+            state = "active"
+        else:
+            state = "pending"
+        chips.append(theme.step_chip(STEP_LABEL[key], state, p[key]))
+    st.markdown('<div style="display:flex;gap:10px;flex-wrap:wrap;'
+                'margin:6px 0 16px">' + "".join(chips) + "</div>",
+                unsafe_allow_html=True)
+
+    if stage < 4:
+        key = STEP_ORDER[stage]
+        enabled = p[key]
+        summary = _param_summary(key, p) if enabled else \
+            "disabled in sidebar \u2014 will be skipped"
+        st.markdown(
+            f"<div style=\"font:700 19px 'Space Grotesk';margin:2px 0 1px\">"
+            f"{STEP_LABEL[key]} &nbsp;<span style=\"font:500 13px 'Space Grotesk';"
+            f"color:#9A92A6\">{STEP_BLURB[key]}</span></div>"
+            f"<div style=\"font:500 12px 'Space Mono';color:#7B2FB0;"
+            f"margin-bottom:10px\">{summary}</div>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([1.3, 1.3, 1])
+        if c1.button("Apply step  \u2192" if enabled else "Skip step  \u2192",
+                     key=f"apply_{stage}", use_container_width=True,
+                     type="primary"):
+            ph = st.empty()
+            ph.markdown(theme.loading_bar("Applying " + STEP_LABEL[key]),
+                        unsafe_allow_html=True)
+            x2, Y2, plot, msgs, applied = apply_stage(
+                stage, ss.pipe_x, ss.pipe_Y, names, p, ss.pipe_plotdir)
+            ss.pipe_x, ss.pipe_Y = x2, Y2
+            if plot is not None:
+                ss.pipe_plots[plot[0]] = plot[1]
+            ss.pipe_msgs += msgs
+            ss.pipe_status.append("applied" if applied else "skipped")
+            ss.pipe_stage = stage + 1
+            ph.empty()
+            st.rerun()
+        if c2.button("Run all remaining  \u23e9", key=f"runall_{stage}",
+                     use_container_width=True):
+            ph = st.empty()
+            ph.markdown(theme.loading_bar("Running pipeline"),
+                        unsafe_allow_html=True)
+            s = stage
+            while s < 4:
+                x2, Y2, plot, msgs, applied = apply_stage(
+                    s, ss.pipe_x, ss.pipe_Y, names, p, ss.pipe_plotdir)
+                ss.pipe_x, ss.pipe_Y = x2, Y2
+                if plot is not None:
+                    ss.pipe_plots[plot[0]] = plot[1]
+                ss.pipe_msgs += msgs
+                ss.pipe_status.append("applied" if applied else "skipped")
+                s += 1
+            ss.pipe_stage = 4
+            ph.empty()
+            st.rerun()
+        if c3.button("\u21ba Reset", key=f"reset_{stage}",
+                     use_container_width=True):
+            _reset_pipeline(x, Y, fname)
+            st.rerun()
+    else:
+        cA, cB = st.columns([3, 1])
+        cA.success("Pipeline complete \u2014 all four stages handled.")
+        if cB.button("\u21ba Reset pipeline", use_container_width=True):
+            _reset_pipeline(x, Y, fname)
+            st.rerun()
+
+    for level, text in ss.pipe_msgs:
+        getattr(st, level)(text)
+    for label, (path, caption) in ss.pipe_plots.items():
+        st.subheader(label)
+        try:
+            st.image(path, use_container_width=True)
+        except Exception:
+            pass
+        st.caption(caption)
+
+    if stage > 0:
+        st.subheader("Cleaned data (current)")
+        out = pd.DataFrame({x_col: ss.pipe_x})
+        for j, n in enumerate(names):
+            out[n] = ss.pipe_Y[:, j]
+        st.dataframe(out.head(15), use_container_width=True)
+        st.caption(f"Showing the first 15 of {len(out):,} rows.")
+        st.download_button(
+            "\u2b07\ufe0f Cleaned data (CSV \u2014 all rows)",
+            data=out.to_csv(index=False).encode("utf-8"),
+            file_name=f"{os.path.splitext(fname)[0]}_cleaned.csv",
+            mime="text/csv", key="dl_cleaned_only")
+    else:
+        st.info("Apply the steps one at a time, or hit **Run all remaining**. "
+                "You can also jump straight to **Peak integration** on the raw "
+                "spectrum.")
+    return ss.pipe_x, ss.pipe_Y, names
+
+
+# --------------------------------------------------------------------------- #
 #  Main
 # --------------------------------------------------------------------------- #
 def main():
@@ -498,40 +726,28 @@ def main():
         return
     names = list(spec_cols)
 
-    plot_dir = tempfile.mkdtemp()
-    try:
-        x_work, Y_clean, names, plots, messages = process(
-            x, Y, names, params, plot_dir)
-    except Exception as e:                      # noqa: BLE001
-        st.error(f"Cleaning failed: {e}")
-        return
-
     tab_clean, tab_integrate = st.tabs(
         ["Clean & preprocess", "Peak integration"])
 
     with tab_clean:
-        for level, text in messages:
-            getattr(st, level)(text)
-        if not plots:
-            st.warning("All cleaning steps are off — enable at least one, or "
-                       "go straight to **Peak integration** on the raw data.")
-        for stage, (path, caption) in plots.items():
-            st.subheader(stage)
-            st.image(path, use_container_width=True)
-            st.caption(caption)
-        st.subheader("Cleaned data")
-        out = pd.DataFrame({x_col: x_work})
-        for j, n in enumerate(names):
-            out[n] = Y_clean[:, j]
-        st.dataframe(out.head(15), use_container_width=True)
-        st.caption(
-            f"Showing the first 15 of {len(out):,} rows — download the "
-            "full cleaned dataset (every row, all spectra) below.")
-        st.download_button(
-            "⬇️ Cleaned data (CSV — all rows)",
-            data=out.to_csv(index=False).encode("utf-8"),
-            file_name=f"{os.path.splitext(up.name)[0]}_cleaned.csv",
-            mime="text/csv", key="dl_cleaned_only")
+        try:
+            x_work, Y_clean, names = stepwise_clean(
+                x, Y, names, x_col, params, up.name)
+        except Exception as e:                  # noqa: BLE001
+            st.warning("Stepwise view hiccuped \u2014 ran the full pipeline "
+                       f"instead. ({e})")
+            x_work, Y_clean = x, Y
+            try:
+                x_work, Y_clean, names, plots, messages = process(
+                    x, Y, names, params, tempfile.mkdtemp())
+                for level, text in messages:
+                    getattr(st, level)(text)
+                for stage, (path, caption) in plots.items():
+                    st.subheader(stage)
+                    st.image(path, use_container_width=True)
+                    st.caption(caption)
+            except Exception as e2:             # noqa: BLE001
+                st.error(f"Cleaning failed: {e2}")
 
     with tab_integrate:
         integration_tab(x_work, Y_clean, names, x_col, params, up.name)
