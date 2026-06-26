@@ -124,9 +124,16 @@ def process(x, Y, names, p, plot_dir):
 #  Integration helpers
 # --------------------------------------------------------------------------- #
 def build_combined_csv(x_col, x, Y, names, peaks, result, baseline_mode, params):
-    """One CSV holding processing metadata, the integration table, and the full
-    cleaned spectra, in clearly-marked sections."""
-    lines = []
+    """One CSV: the full cleaned spectra first (a plain rectangular block that
+    charts directly in Excel/Sheets), then processing metadata and the
+    peak-integration table as a trailing, clearly-marked section."""
+    # Cleaned spectra FIRST, header on row 1 -- identical layout to the Clean &
+    # preprocess export, so spreadsheets can graph it straight away.
+    spec = pd.DataFrame({x_col: x})
+    for j, n in enumerate(names):
+        spec[n] = Y[:, j]
+    lines = [spec.to_csv(index=False).rstrip("\n"), ""]
+
     now = _dt.datetime.now().strftime("%Y-%m-%d %H:%M")
     lines.append("# SERS / Raman processed export")
     lines.append(f"# generated: {now}")
@@ -144,7 +151,6 @@ def build_combined_csv(x_col, x, Y, names, peaks, result, baseline_mode, params)
     lines.append("# processing: " + (", ".join(steps) if steps else "none"))
     lines.append(f"# integration baseline: {baseline_mode}")
     lines.append("")
-
     lines.append("# === PEAK INTEGRATION (areas in intensity*cm^-1) ===")
     if peaks:
         hdr = ["peak_cm-1", "range_start", "range_end"]
@@ -162,13 +168,6 @@ def build_combined_csv(x_col, x, Y, names, peaks, result, baseline_mode, params)
             lines.append(",".join(row))
     else:
         lines.append("# (no peaks defined)")
-    lines.append("")
-
-    lines.append("# === CLEANED SPECTRA ===")
-    spec = pd.DataFrame({x_col: x})
-    for j, n in enumerate(names):
-        spec[n] = Y[:, j]
-    lines.append(spec.to_csv(index=False).rstrip("\n"))
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
@@ -224,7 +223,7 @@ def _shapes_to_peaks(shapes, x, yref, xmin, xmax):
 # --------------------------------------------------------------------------- #
 #  Integration tab
 # --------------------------------------------------------------------------- #
-def integration_tab(x, Y, names, x_col, clean_params):
+def integration_tab(x, Y, names, x_col, clean_params, src_name):
     st.caption("Auto-detected windows appear as shaded bands. "
                "**Drag a band's edge to resize, or its body to move** — the "
                "table updates live. Use the chart toolbar to **draw** a new "
@@ -367,10 +366,11 @@ def integration_tab(x, Y, names, x_col, clean_params):
     # --- exports ---
     st.divider()
     e1, e2 = st.columns(2)
+    stem = os.path.splitext(src_name)[0]
     csv_bytes = build_combined_csv(x_col, x, Y, names, peaks, result,
                                    baseline_mode, clean_params)
     e1.download_button("⬇️ Cleaned data + integration (CSV)", data=csv_bytes,
-                       file_name="spectra_processed.csv", mime="text/csv",
+                       file_name=f"{stem}_processed_integrated.csv", mime="text/csv",
                        use_container_width=True)
 
     png_dir = tempfile.mkdtemp()
@@ -380,7 +380,7 @@ def integration_tab(x, Y, names, x_col, clean_params):
                         show=False)
     with open(png_path, "rb") as fh:
         e2.download_button("⬇️ Annotated figure (PNG)", data=fh.read(),
-                           file_name="spectra_integration.png",
+                           file_name=f"{stem}_integration.png",
                            mime="image/png", use_container_width=True)
     st.image(png_path, use_container_width=True)
 
@@ -538,7 +538,7 @@ def main():
             mime="text/csv", key="dl_cleaned_only")
 
     with tab_integrate:
-        integration_tab(x_work, Y_clean, names, x_col, params)
+        integration_tab(x_work, Y_clean, names, x_col, params, up.name)
 
 
 if __name__ == "__main__":
