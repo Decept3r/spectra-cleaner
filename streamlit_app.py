@@ -389,6 +389,43 @@ def integration_tab(x, Y, names, x_col, clean_params, src_name):
 # --------------------------------------------------------------------------- #
 #  UV-Vis analysis (real-time band around 850 nm)
 # --------------------------------------------------------------------------- #
+def _interp_x(x0, y0, x1, y1, level):
+    """Linear-interpolate the x where y crosses `level` between two points."""
+    if y1 == y0:
+        return float(x0)
+    return float(x0 + (level - y0) * (x1 - x0) / (y1 - y0))
+
+
+def _peak_stats(x, y):
+    """For one trace over x return (peak_x, peak_y, fwhm, clipped). FWHM is the
+    width at half-height above the in-region minimum; `clipped` is True when the
+    trace never falls back to half-height inside the region."""
+    y = np.asarray(y, dtype=float)
+    if y.size == 0 or not np.isfinite(y).any():
+        return float("nan"), float("nan"), float("nan"), False
+    i = int(np.nanargmax(y))
+    peak_x, peak_y = float(x[i]), float(y[i])
+    floor = float(np.nanmin(y))
+    if not np.isfinite(peak_y) or peak_y <= floor:
+        return peak_x, peak_y, float("nan"), False
+    half = floor + (peak_y - floor) / 2.0
+    k = i
+    while k > 0 and y[k] > half:
+        k -= 1
+    if y[k] > half:
+        xl, cl = float(x[0]), True
+    else:
+        xl, cl = _interp_x(x[k], y[k], x[k + 1], y[k + 1], half), False
+    k, n = i, y.size
+    while k < n - 1 and y[k] > half:
+        k += 1
+    if y[k] > half:
+        xr_, cr = float(x[-1]), True
+    else:
+        xr_, cr = _interp_x(x[k - 1], y[k - 1], x[k], y[k], half), False
+    return peak_x, peak_y, abs(xr_ - xl), bool(cl or cr)
+
+
 def _uvvis_figure(x, Y, names, ylabel):
     """Overlay every trace, coloured along a time gradient; Streamlit themes it."""
     cmap = plt.get_cmap("viridis")
@@ -467,14 +504,40 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
     st.plotly_chart(_uvvis_figure(xr, Yout, names, ylabel),
                     use_container_width=True, theme="streamlit")
 
+    # peak summary: position, height and FWHM of each trace's band in the region
+    stem = os.path.splitext(src_name)[0]
+    rows = []
+    for j, nm in enumerate(names):
+        px, py, fw, clip = _peak_stats(xr, Yout[:, j])
+        rows.append({
+            "Series": str(nm),
+            "Peak (nm)": round(px, 1) if np.isfinite(px) else None,
+            "Peak value": round(py, 4) if np.isfinite(py) else None,
+            "FWHM (nm)": (f"≥ {fw:.1f}" if clip else round(fw, 1))
+                         if np.isfinite(fw) else None,
+        })
+    summary = pd.DataFrame(rows)
+    st.markdown("**Peak summary**")
+    st.dataframe(summary, use_container_width=True, hide_index=True)
+    st.caption("Peak = wavelength of each trace's maximum in the region; FWHM is "
+               "measured at half-height above the in-region background. “≥” marks a "
+               "peak that doesn't fall back to half-height inside the region — widen "
+               "the focus region for its true width.")
+
     out = pd.DataFrame({x_col: xr})
     for j, n in enumerate(names):
         out[n] = Yout[:, j]
-    st.download_button(
+    d1, d2 = st.columns(2)
+    d1.download_button(
         f"⬇️ {op} (CSV)",
         data=out.to_csv(index=False).encode("utf-8"),
-        file_name=f"{os.path.splitext(src_name)[0]}_{suffix}.csv",
-        mime="text/csv", key="dl_uvvis")
+        file_name=f"{stem}_{suffix}.csv",
+        mime="text/csv", key="dl_uvvis", use_container_width=True)
+    d2.download_button(
+        "⬇️ Peak summary (CSV)",
+        data=summary.to_csv(index=False).encode("utf-8"),
+        file_name=f"{stem}_uvvis_peaks.csv",
+        mime="text/csv", key="dl_uvvis_peaks", use_container_width=True)
 
 
 # --------------------------------------------------------------------------- #
