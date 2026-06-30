@@ -1085,7 +1085,7 @@ def main():
         st.download_button(
             "⬇️ Cleaned data (CSV — all rows)",
             data=out.to_csv(index=False).encode("utf-8"),
-            file_name=f"{os.path.splitext(up.name)[0]}_cleaned.csv",
+            file_name=f"{src_name}_cleaned.csv",
             mime="text/csv", key="dl_cleaned_only")
 
     with tab_integrate:
