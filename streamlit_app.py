@@ -18,6 +18,7 @@ import base64
 import datetime as _dt
 import io
 import hashlib
+import re
 import tempfile
 
 import numpy as np
@@ -660,17 +661,227 @@ def combine_uploaded(files, is_sers):
 
 
 # --------------------------------------------------------------------------- #
+#  Kinetics / time-trend (OceanView strip-chart: Value vs Time)
+# --------------------------------------------------------------------------- #
+def _hms_to_sec(ts):
+    h, m, s = ts.split(":")
+    return int(h) * 3600 + int(m) * 60 + float(s)
+
+
+def _clock(sec):
+    sec = sec % 86400.0
+    return f"{int(sec // 3600):02d}:{int((sec % 3600) // 60):02d}:{sec % 60:05.2f}"
+
+
+def _channel_of(name):
+    m = re.match(r"^(.*?)__\d+__", name)
+    pre = m.group(1) if m else os.path.splitext(name)[0]
+    return pre.split("_")[-1] or pre
+
+
+def _parse_ov_trend(f):
+    """OceanView strip-chart export: Standard Time / Epoch Time / Value rows."""
+    try:
+        raw = f.getvalue()
+    except Exception:
+        f.seek(0)
+        raw = f.read()
+    text = (raw.decode("utf-8", errors="replace")
+            if isinstance(raw, bytes) else str(raw))
+    lines = text.splitlines()
+    start = 0
+    for i, ln in enumerate(lines):
+        low = ln.lower()
+        if "begin spectral data" in low:
+            start = i + 1
+            break
+        if low.startswith("hh:mm:ss"):
+            start = i + 1
+    t, v = [], []
+    for ln in lines[start:]:
+        p = ln.split("\t")
+        if len(p) < 2:
+            p = ln.split()
+        if len(p) < 2:
+            continue
+        try:
+            sec = _hms_to_sec(p[0].strip())
+            val = float(p[-1])
+        except (ValueError, IndexError):
+            continue
+        t.append(sec)
+        v.append(val)
+    return np.asarray(t, float), np.asarray(v, float)
+
+
+def _stitch_trends(files):
+    """Group OceanView files by channel and stitch the rolling windows into one
+    continuous trace on a common 1-second grid. Returns (chans, grid_sec, t0)."""
+    groups = {}
+    for f in files:
+        try:
+            t, v = _parse_ov_trend(f)
+        except Exception:                               # noqa: BLE001
+            continue
+        if t.size == 0:
+            continue
+        d = groups.setdefault(_channel_of(f.name), {})
+        for ti, vi in zip(t, v):
+            d[round(float(ti), 3)] = float(vi)
+    groups = {k: d for k, d in groups.items() if d}
+    if not groups:
+        return {}, None, None
+    t0 = min(min(d) for d in groups.values())
+    t1 = max(max(d) for d in groups.values())
+    grid = np.arange(t0, t1 + 1e-6, 1.0)
+    chans = {}
+    for ch, d in groups.items():
+        ts = np.array(sorted(d))
+        chans[ch] = np.interp(grid, ts, np.array([d[x] for x in ts]))
+    return chans, grid, t0
+
+
+def _detect_jumps(emin, s, min_rise, win_min=0.3, min_sep_min=1.5):
+    """Flag sharp rises (reagent additions): absorbance rising by >= min_rise
+    within ~win_min. Returns [(index, elapsed_min, rise), ...]."""
+    if emin.size < 3:
+        return []
+    dt = float(np.median(np.diff(emin)))
+    w = max(1, int(round(win_min / dt)))
+    rise = np.zeros_like(s)
+    rise[:-w] = s[w:] - s[:-w]
+    cand = np.where(rise > min_rise)[0]
+    out = []
+    if cand.size:
+        splits = np.where(np.diff(cand) > int(min_sep_min / dt))[0] + 1
+        for g in np.split(cand, splits):
+            i = int(g[int(np.argmax(rise[g]))])
+            out.append((i, float(emin[i]), float(rise[i])))
+    return out
+
+
+def _kinetics_fig(emin, plot, labels, events, grid, ylab):
+    pal = ["#2a78d6", "#1baf7a", "#eda100", "#4a3aa7", "#e34948", "#e87ba4"]
+    fig = go.Figure()
+    for j, ch in enumerate(plot):
+        fig.add_trace(go.Scatter(
+            x=emin, y=plot[ch], mode="lines", name=str(labels.get(ch, ch)),
+            line=dict(width=1.8, color=pal[j % len(pal)]),
+            hovertemplate="%{x:.1f} min — %{y:.3f}<extra>"
+                          + str(labels.get(ch, ch)) + "</extra>"))
+    for i, m, _r in events:
+        fig.add_vline(x=m, line=dict(color="#9aa0a6", width=1, dash="dash"))
+        fig.add_annotation(x=m, y=1.0, yref="paper", yanchor="bottom",
+                           text=_clock(grid[i]).split(".")[0], showarrow=False,
+                           font=dict(size=10))
+    fig.update_layout(margin=dict(l=10, r=10, t=26, b=42), height=480,
+                      xaxis_title="time (min)", yaxis_title=ylab,
+                      hovermode="x unified",
+                      legend=dict(orientation="h", y=1.02, yanchor="bottom", x=0))
+    return fig
+
+
+def kinetics_analysis(files):
+    """OceanView strip-chart: stitch the rolling windows, plot absorbance vs time,
+    and auto-detect + time-stamp the jumps (reagent additions)."""
+    st.caption("OceanView strip-chart (absorbance vs time). Files are grouped by "
+               "channel, stitched across the auto-saved rolling windows, and "
+               "plotted. Sharp rises (e.g. reagent additions) are auto-detected "
+               "and time-stamped below.")
+    chans, grid, t0 = _stitch_trends(files)
+    if not chans:
+        st.warning("No OceanView trend data found — these should be the "
+                   "strip-chart .txt files (Standard Time / Value rows).")
+        return
+    emin = (grid - t0) / 60.0
+
+    st.markdown("**Channels** — rename to label each tracked wavelength")
+    labels = {}
+    lcols = st.columns(min(len(chans), 4))
+    for i, ch in enumerate(chans):
+        labels[ch] = lcols[i % len(lcols)].text_input(ch, value=ch, key=f"klab_{ch}")
+
+    c1, c2 = st.columns([1.5, 1])
+    base_lbl = c1.selectbox(
+        "Baseline channel (optional — subtracted from the others)",
+        ["(none)"] + [labels[c] for c in chans], index=0,
+        help="A reference wavelength tracking common-mode drift / turbidity; "
+             "subtracting it isolates the wavelength-specific signal.")
+    sens = c2.slider("Jump sensitivity (min rise)", 0.01, 0.50, 0.05, 0.01,
+                     help="Flag a jump when absorbance rises by at least this much "
+                          "within ~0.3 min. Lower = more sensitive.")
+
+    base = next((c for c in chans if labels[c] == base_lbl), None)
+    if base is not None:
+        plot = {c: chans[c] - chans[base] for c in chans if c != base}
+        ylab = "absorbance (baseline-subtracted)"
+    else:
+        plot = dict(chans)
+        ylab = "absorbance"
+    if not plot:
+        st.warning("Only the baseline channel is present — nothing left to plot.")
+        return
+
+    detect_ch = max(chans, key=lambda c: float(chans[c].max() - chans[c].min()))
+    events = _detect_jumps(emin, chans[detect_ch], sens)  # additions from raw signal
+
+    st.plotly_chart(_kinetics_fig(emin, plot, labels, events, grid, ylab),
+                    use_container_width=True, theme="streamlit")
+
+    st.markdown("**Detected jumps (additions)**")
+    dt = float(np.median(np.diff(grid))) if grid.size > 1 else 1.0
+    look = max(1, int(round(0.3 * 60 / dt)))
+    rows = []
+    for i, m, _r in events:
+        j = min(i + look, len(grid) - 1)
+        row = {"Time": _clock(grid[i]), "Elapsed (min)": round(m, 1)}
+        for c in plot:
+            row["Δ " + labels[c]] = round(float(plot[c][j] - plot[c][i]), 3)
+        rows.append(row)
+    ev_df = pd.DataFrame(rows)
+    if rows:
+        st.dataframe(ev_df, use_container_width=True, hide_index=True)
+        st.caption(f"Detected on **{labels[detect_ch]}** (largest range). "
+                   "Adjust sensitivity to add or drop events.")
+    else:
+        st.caption("No jumps above the current sensitivity — lower it to catch "
+                   "smaller steps.")
+
+    out = pd.DataFrame({"Time": [_clock(s) for s in grid],
+                        "Elapsed_min": np.round(emin, 4)})
+    for c in plot:
+        out[labels[c]] = plot[c]
+    d1, d2 = st.columns(2)
+    d1.download_button("⬇️ Stitched trend (CSV)",
+                       out.to_csv(index=False).encode("utf-8"),
+                       "kinetics_trend.csv", "text/csv", key="dl_kin",
+                       use_container_width=True)
+    if rows:
+        d2.download_button("⬇️ Detected jumps (CSV)",
+                           ev_df.to_csv(index=False).encode("utf-8"),
+                           "kinetics_jumps.csv", "text/csv", key="dl_kin_ev",
+                           use_container_width=True)
+
+
+# --------------------------------------------------------------------------- #
 #  Sidebar controls
 # --------------------------------------------------------------------------- #
 def sidebar_controls():
     sb = st.sidebar
     sb.header("Data")
     source = sb.radio(
-        "Input", ["Single file", "Combine raw files"],
+        "Input", ["Single file", "Combine raw files", "Kinetics trend (OceanView)"],
         help="“Combine raw files” merges many raw instrument exports of the "
              "same format into one wavelength + many-series dataset, ready for "
              "the analyses below.")
     up = files = raw_type = None
+    if source == "Kinetics trend (OceanView)":
+        files = sb.file_uploader(
+            "OceanView trend files (.txt)", type=["txt"],
+            accept_multiple_files=True)
+        sb.caption("All the auto-saved strip-chart files; they're grouped "
+                   "by channel and stitched into one continuous trace.")
+        return up, files, raw_type, source, "Kinetics", None
     if source == "Combine raw files":
         raw_type = sb.radio(
             "Raw file format", ["SERS · .csv", "UV-Vis · .txt"],
@@ -755,6 +966,15 @@ def main():
     theme.render_header()
 
     up, files, raw_type, source, analysis, params = sidebar_controls()
+
+    if source == "Kinetics trend (OceanView)":
+        if not files:
+            st.info("⬅️ Upload your OceanView strip-chart files (.txt) in "
+                    "the sidebar to plot the time-trend and time-stamp the "
+                    "jumps.")
+            return
+        kinetics_analysis(files)
+        return
 
     if source == "Combine raw files":
         if not files:
