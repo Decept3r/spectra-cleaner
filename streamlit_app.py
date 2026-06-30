@@ -547,22 +547,156 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
 
 
 # --------------------------------------------------------------------------- #
+#  Batch raw-file combiner (instrument exports -> one wavelength + many series)
+# --------------------------------------------------------------------------- #
+def _pick_col(cols, keys):
+    low = [(str(c).lower(), c) for c in cols]
+    for k in keys:
+        for lc, c in low:
+            if k in lc:
+                return c
+    return None
+
+
+def _parse_sers_csv(f):
+    """Raw SERS export: a CSV with Wavelength + Intensity columns (others ignored)."""
+    try:
+        f.seek(0)
+    except Exception:
+        pass
+    df = pd.read_csv(f)
+    df.columns = [str(c).strip() for c in df.columns]
+    xcol = _pick_col(df.columns, ["wavelength", "wavenumber", "raman", "shift",
+                                  "wave"]) or df.columns[0]
+    ycol = (_pick_col(df.columns, ["intensity", "counts", "signal", "abs"])
+            or (df.columns[1] if len(df.columns) > 1 else df.columns[0]))
+    x = pd.to_numeric(df[xcol], errors="coerce").to_numpy(float)
+    y = pd.to_numeric(df[ycol], errors="coerce").to_numpy(float)
+    m = np.isfinite(x) & np.isfinite(y)
+    return x[m], y[m]
+
+
+def _parse_uvvis_txt(f):
+    """Raw UV-Vis export: a header block ending at '...Begin Spectral Data...',
+    then  wavelength <tab/space> intensity  rows."""
+    try:
+        raw = f.getvalue()
+    except Exception:
+        f.seek(0)
+        raw = f.read()
+    text = (raw.decode("utf-8", errors="replace")
+            if isinstance(raw, bytes) else str(raw))
+    lines = text.splitlines()
+    start = 0
+    for i, ln in enumerate(lines):
+        if "begin spectral data" in ln.lower():
+            start = i + 1
+            break
+    xs, ys = [], []
+    for ln in lines[start:]:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith(">>>"):
+            break
+        parts = s.replace(",", " ").split()
+        if len(parts) < 2:
+            continue
+        try:
+            xv, yv = float(parts[0]), float(parts[1])
+        except ValueError:
+            continue
+        xs.append(xv)
+        ys.append(yv)
+    return np.asarray(xs, float), np.asarray(ys, float)
+
+
+def _combine_raw(files, is_sers):
+    """Merge raw files onto the first file's wavelength axis; one series per file,
+    each named after its source document. Returns (DataFrame, messages)."""
+    parse = _parse_sers_csv if is_sers else _parse_uvvis_txt
+    xname = "Wavelength" if is_sers else "Wavelength (nm)"
+    x_ref, series, msgs = None, [], []
+    for f in files:
+        try:
+            x, y = parse(f)
+        except Exception as exc:                        # noqa: BLE001
+            msgs.append(("warning", f"Skipped **{f.name}** — {exc}"))
+            continue
+        if x.size < 2 or y.size < 2:
+            msgs.append(("warning", f"Skipped **{f.name}** — no spectral data found."))
+            continue
+        if x_ref is None:
+            x_ref = x
+        if y.size == x_ref.size and np.allclose(x, x_ref, atol=1e-6):
+            yv = y
+        else:
+            yv = np.interp(x_ref, x, y)
+            msgs.append(("info", f"**{f.name}** resampled onto the reference axis "
+                                 f"({y.size}→{x_ref.size} pts)."))
+        nm, taken = os.path.splitext(f.name)[0], [s[0] for s in series]
+        col, k = nm, 1
+        while col in taken:
+            k += 1
+            col = f"{nm} ({k})"
+        series.append((col, yv))
+    if x_ref is None or not series:
+        return None, msgs
+    out = pd.DataFrame({xname: x_ref})
+    for col, yv in series:
+        out[col] = yv
+    return out, msgs
+
+
+def combine_uploaded(files, is_sers):
+    """Combine uploaded raw files, recomputing only when the file set changes."""
+    sig = (bool(is_sers), tuple((f.name, f.size) for f in files))
+    if st.session_state.get("_combine_sig") != sig:
+        df, msgs = _combine_raw(files, is_sers)
+        st.session_state["_combine_sig"] = sig
+        st.session_state["_combine_df"] = df
+        st.session_state["_combine_msgs"] = msgs
+    return st.session_state["_combine_df"], st.session_state["_combine_msgs"]
+
+
+# --------------------------------------------------------------------------- #
 #  Sidebar controls
 # --------------------------------------------------------------------------- #
 def sidebar_controls():
     sb = st.sidebar
     sb.header("Data")
-    up = sb.file_uploader("Spectra CSV", type=["csv", "txt"])
-    sb.caption("First column = x-axis; every other column = a spectrum, "
-               "replicate, or time point.")
-    analysis = sb.radio(
-        "Analysis", ["SERS / Raman", "UV-Vis · real-time (~850 nm band)"],
-        help="SERS / Raman: despike, baseline, FFT denoise, peak integration. "
-             "UV-Vis: focus on the broad ~850 nm band, then normalize or "
-             "broadly background-subtract.")
+    source = sb.radio(
+        "Input", ["Single file", "Combine raw files"],
+        help="“Combine raw files” merges many raw instrument exports of the "
+             "same format into one wavelength + many-series dataset, ready for "
+             "the analyses below.")
+    up = files = raw_type = None
+    if source == "Combine raw files":
+        raw_type = sb.radio(
+            "Raw file format", ["SERS · .csv", "UV-Vis · .txt"],
+            help="SERS: a CSV with Wavelength + Intensity columns. "
+                 "UV-Vis: an instrument .txt (header, then wavelength/intensity).")
+        files = sb.file_uploader("Raw files (up to ~25)", type=["csv", "txt"],
+                                 accept_multiple_files=True)
+        sb.caption("x-axis comes from the first file; each series is named after "
+                   "its source file.")
+        analysis = ("UV-Vis · real-time (~850 nm band)"
+                    if raw_type.startswith("UV-Vis") else "SERS / Raman")
+    else:
+        up = sb.file_uploader("Spectra CSV", type=["csv", "txt"])
+        sb.caption("First column = x-axis; every other column = a spectrum, "
+                   "replicate, or time point.")
+        analysis = sb.radio(
+            "Analysis", ["SERS / Raman", "UV-Vis · real-time (~850 nm band)"],
+            help="SERS / Raman: despike, baseline, FFT denoise, peak integration. "
+                 "UV-Vis: focus on the broad ~850 nm band, then normalize or "
+                 "broadly background-subtract.")
+
     if analysis.startswith("UV-Vis"):
-        sb.caption("UV-Vis options appear on the main panel →")
-        return up, analysis, None
+        if source == "Single file":
+            sb.caption("UV-Vis options appear on the main panel →")
+        return up, files, raw_type, source, analysis, None
+
     sb.header("Cleaning steps")
 
     with sb.expander("1 · Despike (cosmic rays)", expanded=True):
@@ -609,7 +743,7 @@ def sidebar_controls():
         b_poly=b_poly, fft=fft, f_method=f_method, f_cutoff=f_cutoff,
         f_nsigma=f_nsigma, f_notch_freqs=f_notch_freqs,
         f_notchwidth=f_notchwidth)
-    return up, analysis, params
+    return up, files, raw_type, source, analysis, params
 
 
 # --------------------------------------------------------------------------- #
@@ -620,30 +754,63 @@ def main():
                        layout="wide")
     theme.render_header()
 
-    up, analysis, params = sidebar_controls()
+    up, files, raw_type, source, analysis, params = sidebar_controls()
 
-    if up is None:
-        st.info("⬅️ Upload a CSV in the sidebar to begin.")
-        st.markdown("**Expected format**")
-        st.code("Wavelength,S1,S2,S3,S4\n139.19,2368,1547,1492,1578\n"
-                "141.24,2344,1549,1502,1569\n...", language="text")
-        return
+    if source == "Combine raw files":
+        if not files:
+            st.info("⬅️ Upload your raw instrument files in the sidebar "
+                    "to combine them into one dataset.")
+            st.markdown("**Raw formats**")
+            st.markdown("- **SERS** — a CSV with `Wavelength` and `Intensity` "
+                        "columns (extra columns are ignored).")
+            st.markdown("- **UV-Vis** — an instrument `.txt`: a header block, "
+                        "then `Begin Spectral Data`, then wavelength/intensity.")
+            return
+        is_sers = not raw_type.startswith("UV-Vis")
+        df, _msgs = combine_uploaded(files, is_sers)
+        for _lvl, _m in _msgs:
+            getattr(st, _lvl)(_m)
+        if df is None or df.shape[1] < 2:
+            st.error("Couldn't extract any spectra — check the files match the "
+                     "selected raw format.")
+            return
+        src_name = "combined_" + ("SERS" if is_sers else "UVVis")
+        st.success(f"Combined **{df.shape[1] - 1}** file(s) onto a shared "
+                   f"{df.columns[0]} axis · {len(df):,} points.")
+        st.download_button(
+            "⬇️ Combined raw data (CSV)",
+            data=df.to_csv(index=False).encode("utf-8"),
+            file_name=f"{src_name}.csv", mime="text/csv", key="dl_combined")
+        st.dataframe(df.head(12), use_container_width=True)
+        st.caption("This combined dataset now feeds the analysis below — "
+                   "adjust the cleaning steps (SERS) or focus region (UV-Vis) "
+                   "as usual.")
+        data_id = "combine:" + str(tuple((f.name, f.size) for f in files))
+    else:
+        if up is None:
+            st.info("⬅️ Upload a CSV in the sidebar to begin.")
+            st.markdown("**Expected format**")
+            st.code("Wavelength,S1,S2,S3,S4\n139.19,2368,1547,1492,1578\n"
+                    "141.24,2344,1549,1502,1569\n...", language="text")
+            return
+        try:
+            df = pd.read_csv(up)
+        except Exception as e:                      # noqa: BLE001
+            st.error(f"Could not read the CSV: {e}")
+            return
+        src_name = os.path.splitext(up.name)[0]
+        data_id = up.name
 
-    # Reset peak state when a different file is loaded.
-    if st.session_state.get("_file") != up.name:
-        st.session_state._file = up.name
+    # Reset peak state when the active dataset changes.
+    if st.session_state.get("_data_id") != data_id:
+        st.session_state._data_id = data_id
         for k in ("peaks", "canvas_ver"):
             st.session_state.pop(k, None)
 
-    try:
-        df = pd.read_csv(up)
-    except Exception as e:                      # noqa: BLE001
-        st.error(f"Could not read the CSV: {e}")
-        return
     df.columns = [str(c).strip() for c in df.columns]
     cols = list(df.columns)
     if len(cols) < 2:
-        st.error("The file needs at least two columns (x-axis + one spectrum).")
+        st.error("The data needs at least two columns (x-axis + one spectrum).")
         return
 
     with st.expander("Column mapping (defaults are usually right)"):
@@ -663,7 +830,7 @@ def main():
     names = list(spec_cols)
 
     if analysis.startswith("UV-Vis"):
-        uvvis_analysis(x, Y, names, x_col, up.name)
+        uvvis_analysis(x, Y, names, x_col, src_name)
         return
 
     plot_dir = tempfile.mkdtemp()
@@ -702,7 +869,7 @@ def main():
             mime="text/csv", key="dl_cleaned_only")
 
     with tab_integrate:
-        integration_tab(x_work, Y_clean, names, x_col, params, up.name)
+        integration_tab(x_work, Y_clean, names, x_col, params, src_name)
 
 
 if __name__ == "__main__":
