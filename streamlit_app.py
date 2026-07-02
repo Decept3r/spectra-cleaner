@@ -960,6 +960,85 @@ def sidebar_controls():
 # --------------------------------------------------------------------------- #
 #  Main
 # --------------------------------------------------------------------------- #
+def _home_guide():
+    """Themed 'how to use' landing page (shown before any data is loaded)."""
+    st.markdown("""<style>
+    .nm-guide{font-family:'Space Grotesk',system-ui,sans-serif;color:#1A1620;margin-top:.3rem}
+    .nm-guide .lead{font-size:1.06rem;color:#4A4453;max-width:780px;line-height:1.55;margin:.2rem 0 0}
+    .nm-bar{height:3px;border-radius:3px;background:linear-gradient(90deg,#C42348,#C01C8E,#7B2FB0,#4A35C4,#2456C8);margin:1.1rem 0 1.3rem;opacity:.92}
+    .nm-sec{font-weight:700;letter-spacing:.13em;text-transform:uppercase;font-size:.78rem;color:#7B2FB0;margin:1.5rem 0 .7rem}
+    .nm-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(252px,1fr));gap:14px}
+    .nm-card{background:#fff;border:1px solid #E9E2F0;border-left:4px solid #7B2FB0;border-radius:12px;padding:14px 16px;box-shadow:0 1px 2px rgba(26,22,40,.04)}
+    .nm-card h4{margin:0 0 .35rem;font-size:1.03rem;font-weight:700;color:#1A1620}
+    .nm-card p{margin:0;font-size:.9rem;color:#6B6573;line-height:1.5}
+    .nm-card ul{margin:.45rem 0 0;padding-left:1.05rem}
+    .nm-card li{font-size:.87rem;color:#4A4453;line-height:1.5;margin:.22rem 0}
+    .nm-card b{color:#1A1620}
+    .nm-step{display:flex;gap:12px;align-items:flex-start;margin:.45rem 0}
+    .nm-num{flex:none;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,#C42348,#7B2FB0);color:#fff;font-weight:700;font-size:.85rem;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(123,47,176,.3)}
+    .nm-step div{font-size:.94rem;color:#4A4453;line-height:1.5}
+    .nm-step b{color:#1A1620}
+    .nm-fmt{font-family:'Space Mono',monospace;font-size:.82rem;background:#F7F4FA;border:1px solid #ECE6F1;border-radius:8px;padding:10px 13px;color:#5F5E5A;line-height:1.7;margin-top:.45rem}
+    </style>
+    <div class="nm-guide">
+      <p class="lead">A toolkit for SERS / Raman and UV-Vis spectra — clean and integrate peaks,
+      compare band shapes, batch-combine raw instrument files, and follow reactions in real time.</p>
+      <div class="nm-bar"></div>
+
+      <div class="nm-sec">How it flows</div>
+      <div class="nm-step"><div class="nm-num">1</div><div><b>Choose your input</b> in the sidebar (Data &rarr; Input): a single CSV, a batch of raw files to combine, or OceanView kinetics files.</div></div>
+      <div class="nm-step"><div class="nm-num">2</div><div><b>Pick an analysis</b> — SERS / Raman or UV-Vis — then tune it on the main panel.</div></div>
+      <div class="nm-step"><div class="nm-num">3</div><div><b>Adjust &amp; export</b> — drag, zoom and fine-tune, then download CSVs and figures.</div></div>
+
+      <div class="nm-sec">The three tracks</div>
+      <div class="nm-grid">
+        <div class="nm-card" style="border-left-color:#C42348">
+          <h4>SERS / Raman</h4>
+          <p>Clean noisy spectra, then integrate peaks with reproducibility stats.</p>
+          <ul>
+            <li><b>Clean &amp; preprocess</b> — despike cosmic rays, resample, baseline-correct, FFT denoise.</li>
+            <li><b>Peak integration</b> — auto-detect bands, then drag boxes on a live plot to set windows.</li>
+            <li>Per-peak areas, mean &plusmn; SD and <b>%RSD</b> across replicates; combined CSV + annotated PNG.</li>
+          </ul>
+        </div>
+        <div class="nm-card" style="border-left-color:#7B2FB0">
+          <h4>UV-Vis &middot; LSPR band</h4>
+          <p>Focus the broad ~850&nbsp;nm band and compare shapes across a run.</p>
+          <ul>
+            <li><b>Normalize</b> each trace's maximum to 1 to compare widths / shapes, or</li>
+            <li><b>Subtract a very broad background</b> while preserving the broad peak.</li>
+            <li><b>Peak summary</b> — wavelength, height and <b>FWHM</b> for every series.</li>
+          </ul>
+        </div>
+        <div class="nm-card" style="border-left-color:#2456C8">
+          <h4>Real-time kinetics</h4>
+          <p>Turn OceanView strip-charts into one continuous story.</p>
+          <ul>
+            <li>Drop in the auto-saved <b>.txt</b> files; they're <b>stitched</b> into one absorbance-vs-time trace.</li>
+            <li>Sharp <b>additions are auto-detected and time-stamped</b>.</li>
+            <li>Label channels, optional baseline subtraction; export the trend + the jump list.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="nm-sec">Handy tools</div>
+      <div class="nm-grid">
+        <div class="nm-card" style="border-left-color:#C01C8E">
+          <h4>Batch combine</h4>
+          <p>Many raw files &rarr; one tidy dataset. Pick SERS (.csv) or UV-Vis (.txt) and drop in up to ~25 files; the wavelength axis comes from the first and each series is named after its file — download it, or pipe it straight into an analysis.</p>
+        </div>
+        <div class="nm-card" style="border-left-color:#4A35C4">
+          <h4>The integration editor</h4>
+          <p>Drag a band's <b>edge</b> to resize or its <b>body</b> to move — a <b>zoom loupe</b> pops up for precise placement. Use the toolbar to <b>draw</b> a new window or <b>zoom</b> the spectrum, the <b>eraser</b> to delete one, or type <b>exact bounds</b>. The areas table updates live.</p>
+        </div>
+      </div>
+
+      <div class="nm-sec">Single-file format</div>
+      <p class="lead" style="font-size:.92rem">First column = x-axis (wavelength / Raman shift); every other column is a spectrum, replicate, or time point.</p>
+      <div class="nm-fmt">Wavelength,S1,S2,S3,S4<br>139.19,2368,1547,1492,1578<br>141.24,2344,1549,1502,1569<br>&hellip;</div>
+    </div>""", unsafe_allow_html=True)
+
+
 def main():
     st.set_page_config(page_title="Nanomeli · Spectra toolkit", page_icon="🧪",
                        layout="wide")
@@ -1008,10 +1087,7 @@ def main():
         data_id = "combine:" + str(tuple((f.name, f.size) for f in files))
     else:
         if up is None:
-            st.info("⬅️ Upload a CSV in the sidebar to begin.")
-            st.markdown("**Expected format**")
-            st.code("Wavelength,S1,S2,S3,S4\n139.19,2368,1547,1492,1578\n"
-                    "141.24,2344,1549,1502,1569\n...", language="text")
+            _home_guide()
             return
         try:
             df = pd.read_csv(up)
