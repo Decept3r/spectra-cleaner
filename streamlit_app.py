@@ -962,7 +962,7 @@ def sidebar_controls():
 # --------------------------------------------------------------------------- #
 def _home_guide():
     """Themed 'how to use' landing page (shown before any data is loaded)."""
-    st.markdown("""<style>
+    _html = """<style>
     .nm-guide{font-family:'Space Grotesk',system-ui,sans-serif;color:#1A1620;margin-top:.3rem}
     .nm-guide .lead{font-size:1.06rem;color:#4A4453;max-width:780px;line-height:1.55;margin:.2rem 0 0}
     .nm-bar{height:3px;border-radius:3px;background:linear-gradient(90deg,#C42348,#C01C8E,#7B2FB0,#4A35C4,#2456C8);margin:1.1rem 0 1.3rem;opacity:.92}
@@ -1036,7 +1036,9 @@ def _home_guide():
       <div class="nm-sec">Single-file format</div>
       <p class="lead" style="font-size:.92rem">First column = x-axis (wavelength / Raman shift); every other column is a spectrum, replicate, or time point.</p>
       <div class="nm-fmt">Wavelength,S1,S2,S3,S4<br>139.19,2368,1547,1492,1578<br>141.24,2344,1549,1502,1569<br>&hellip;</div>
-    </div>""", unsafe_allow_html=True)
+    </div>"""
+    st.markdown("\n".join(_l.lstrip() for _l in _html.splitlines()),
+                unsafe_allow_html=True)
 
 
 def main():
