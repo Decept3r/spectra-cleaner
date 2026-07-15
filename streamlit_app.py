@@ -874,6 +874,21 @@ OCP_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7",
               "#e34948", "#e87ba4", "#eb6834"]
 
 
+def _distinct_colors(n):
+    """n visually distinct colours: the curated standout set for small n, else
+    golden-ratio-spaced hues so every concentration stays differentiable."""
+    if n <= len(OCP_COLORS):
+        return list(OCP_COLORS[:n])
+    import colorsys
+    out = []
+    for k in range(n):
+        h = (k * 0.6180339887498949) % 1.0
+        lig = 0.44 + 0.12 * (k % 2)
+        r, g, b = colorsys.hls_to_rgb(h, lig, 0.82)
+        out.append("#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255)))
+    return out
+
+
 def _read_text(f):
     try:
         raw = f.getvalue()
@@ -943,7 +958,8 @@ def _ocp_template_data(df):
     return tmin, volt, additions, None
 
 
-def _ocp_fig(tmin, volt, additions, conc_color, vol_symbol, title="", band=None):
+def _ocp_fig(tmin, volt, additions, conc_color, vol_symbol, title="",
+             band=None, offset=0.0):
     fig = go.Figure()
     if band:
         fig.add_hrect(y0=min(band), y1=max(band), line_width=0,
@@ -954,15 +970,16 @@ def _ocp_fig(tmin, volt, additions, conc_color, vol_symbol, title="", band=None)
                              hovertemplate="%{x:.1f} min · %{y:.3f} V<extra></extra>"))
     if additions:
         fig.add_trace(go.Scatter(
-            x=[a["t"] for a in additions], y=[a["v"] for a in additions],
+            x=[a["t"] for a in additions],
+            y=[a["v"] + offset for a in additions],
             mode="markers", showlegend=False,
             marker=dict(size=12,
                         color=[conc_color[a["conc"]] for a in additions],
                         symbol=[vol_symbol[a["vol"]] for a in additions],
                         line=dict(width=1, color="#1A1620")),
-            customdata=[[a["conc"], a["vol"]] for a in additions],
-            hovertemplate="%{x:.1f} min · %{y:.3f} V<br>%{customdata[0]} · "
-                          "%{customdata[1]}<extra></extra>"))
+            customdata=[[a["conc"], a["vol"], a["v"]] for a in additions],
+            hovertemplate="%{x:.1f} min · %{customdata[2]:.3f} V<br>"
+                          "%{customdata[0]} · %{customdata[1]}<extra></extra>"))
         for c in conc_color:
             fig.add_trace(go.Scatter(
                 x=[None], y=[None], mode="markers", name=str(c),
@@ -998,7 +1015,8 @@ def ocp_analysis(f):
             return
         st.caption("Raw open-circuit-potential run loaded. Below is your **fill-in "
                    "template** — rename each `Conc_n` header to a NaBH₄ "
-                   "concentration, enter the volume (mL) in the row at the minute "
+                   "concentration (delete the extra ones you don't need), "
+                   "enter the volume (mL) in the row at the minute "
                    "you added it, save as CSV, and re-upload here for the "
                    "annotated graph.")
         st.plotly_chart(_ocp_fig(t_s / 60.0, volt, [], {}, {}, title=stem),
@@ -1006,7 +1024,7 @@ def ocp_analysis(f):
         tmpl = pd.DataFrame({"Time (s)": np.round(t_s, 3),
                              "Time (min)": np.round(t_s / 60.0, 4),
                              "Voltage (V)": volt})
-        for k in range(1, 5):
+        for k in range(1, 16):
             tmpl[f"Conc_{k}"] = ""
         st.dataframe(tmpl.head(12), use_container_width=True)
         st.download_button(
@@ -1037,7 +1055,8 @@ def ocp_analysis(f):
 
     concs = list(dict.fromkeys(a["conc"] for a in additions))
     vols = sorted(dict.fromkeys(a["vol"] for a in additions))
-    conc_color = {c: OCP_COLORS[i % len(OCP_COLORS)] for i, c in enumerate(concs)}
+    palette = _distinct_colors(len(concs))
+    conc_color = {c: palette[i] for i, c in enumerate(concs)}
 
     st.markdown("**Symbol for each volume** (colour is auto-assigned per concentration)")
     scols = st.columns(min(len(vols), 4))
@@ -1053,9 +1072,13 @@ def ocp_analysis(f):
                           format="%.3f", disabled=not hl)
     yhi = b3.number_input("To (V)", value=round(vmax, 3), step=0.01,
                           format="%.3f", disabled=not hl)
+    lift = st.slider("Lift markers above the curve (% of span)", 0, 15, 4, 1,
+                     help="Floats each symbol above its data point so the "
+                          "curve stays visible underneath.")
+    off = (lift / 100.0) * (vmax - vmin)
 
     fig = _ocp_fig(tmin, volt, additions, conc_color, vol_symbol,
-                   title=title, band=(ylo, yhi) if hl else None)
+                   title=title, band=(ylo, yhi) if hl else None, offset=off)
     st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
     ev = pd.DataFrame([{"Time (min)": round(a["t"], 2),
