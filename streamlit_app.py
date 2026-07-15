@@ -870,22 +870,21 @@ OCP_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down",
                "star", "cross", "x", "pentagon", "hexagram",
                "star-triangle-up", "hourglass", "bowtie", "diamond-tall"]
 # validated standout categorical order (one colour per concentration)
-OCP_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7",
-              "#e34948", "#e87ba4", "#eb6834"]
-
-
 def _distinct_colors(n):
-    """n visually distinct colours: the curated standout set for small n, else
-    golden-ratio-spaced hues so every concentration stays differentiable."""
-    if n <= len(OCP_COLORS):
-        return list(OCP_COLORS[:n])
+    """n visually distinct colours: eight evenly-spaced rainbow hues first, then
+    golden-ratio-spaced hues beyond eight so every concentration stays unique."""
     import colorsys
-    out = []
-    for k in range(n):
-        h = (k * 0.6180339887498949) % 1.0
-        lig = 0.44 + 0.12 * (k % 2)
-        r, g, b = colorsys.hls_to_rgb(h, lig, 0.82)
-        out.append("#%02x%02x%02x" % (int(r * 255), int(g * 255), int(b * 255)))
+
+    def hexc(h, lig, sat):
+        r, g, b = colorsys.hls_to_rgb(h % 1.0, lig, sat)
+        return "#%02x%02x%02x" % (round(r * 255), round(g * 255), round(b * 255))
+
+    rainbow = [hexc(k / 8.0, 0.50, 0.90) for k in range(8)]
+    if n <= 8:
+        return rainbow[:n]
+    out = list(rainbow)
+    for k in range(n - 8):
+        out.append(hexc(k * 0.6180339887498949 + 0.05, 0.44 + 0.12 * (k % 2), 0.82))
     return out
 
 
