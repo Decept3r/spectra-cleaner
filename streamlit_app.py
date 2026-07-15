@@ -864,17 +864,231 @@ def kinetics_analysis(files):
 
 
 # --------------------------------------------------------------------------- #
+#  Open-circuit potential (potential vs time; reagent-addition annotations)
+# --------------------------------------------------------------------------- #
+OCP_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down",
+               "star", "cross", "x", "pentagon", "hexagram",
+               "star-triangle-up", "hourglass", "bowtie", "diamond-tall"]
+# validated standout categorical order (one colour per concentration)
+OCP_COLORS = ["#2a78d6", "#1baf7a", "#eda100", "#008300", "#4a3aa7",
+              "#e34948", "#e87ba4", "#eb6834"]
+
+
+def _read_text(f):
+    try:
+        raw = f.getvalue()
+    except Exception:
+        f.seek(0)
+        raw = f.read()
+    return raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else str(raw)
+
+
+def _parse_ocp_raw(text):
+    """Raw OCP export: header, then '[Begin Data]', then Time (s), Voltage rows."""
+    lines = text.splitlines()
+    start = 0
+    for i, ln in enumerate(lines):
+        if "[begin data]" in ln.lower():
+            start = i + 1
+            break
+    if start < len(lines):
+        h = lines[start].lower()
+        if "time" in h and ("volt" in h or "(v)" in h):
+            start += 1
+    t, v = [], []
+    for ln in lines[start:]:
+        p = ln.replace(";", ",").split(",")
+        if len(p) < 2:
+            continue
+        try:
+            t.append(float(p[0]))
+            v.append(float(p[1]))
+        except ValueError:
+            continue
+    return np.asarray(t, float), np.asarray(v, float)
+
+
+def _ocp_template_data(df):
+    """From a filled template DataFrame return (tmin, volt, additions, error)."""
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    cols = list(df.columns)
+    vcol = _pick_col(cols, ["voltage", "potential", "(v)"])
+    mcol = _pick_col(cols, ["time (min)", "min"])
+    scol = _pick_col(cols, ["time (s)", "(s)", "second"])
+    if vcol is None:
+        return None, None, None, "no voltage / potential column found"
+    volt = pd.to_numeric(df[vcol], errors="coerce").to_numpy(float)
+    if mcol is not None:
+        tmin = pd.to_numeric(df[mcol], errors="coerce").to_numpy(float)
+    elif scol is not None:
+        tmin = pd.to_numeric(df[scol], errors="coerce").to_numpy(float) / 60.0
+    else:
+        return None, None, None, "no time column (Time (min) or Time (s))"
+    ann = [c for c in cols if c not in (vcol, mcol, scol)]
+    additions = []
+    for c in ann:
+        col = df[c]
+        for r in range(len(col)):
+            cell = col.iloc[r]
+            if pd.isna(cell) or str(cell).strip() == "":
+                continue
+            if r >= tmin.size or not np.isfinite(tmin[r]) or not np.isfinite(volt[r]):
+                continue
+            raw = str(cell).strip()
+            num = pd.to_numeric(raw, errors="coerce")
+            vol = (f"{num:g} mL" if pd.notna(num) else raw)
+            additions.append({"t": float(tmin[r]), "v": float(volt[r]),
+                              "conc": c, "vol": vol})
+    return tmin, volt, additions, None
+
+
+def _ocp_fig(tmin, volt, additions, conc_color, vol_symbol, title="", band=None):
+    fig = go.Figure()
+    if band:
+        fig.add_hrect(y0=min(band), y1=max(band), line_width=0,
+                      fillcolor="rgba(240,215,55,0.30)", layer="below")
+    fig.add_trace(go.Scatter(x=tmin, y=volt, mode="lines",
+                             line=dict(width=1.6, color="#2E5A6B"),
+                             showlegend=False,
+                             hovertemplate="%{x:.1f} min · %{y:.3f} V<extra></extra>"))
+    if additions:
+        fig.add_trace(go.Scatter(
+            x=[a["t"] for a in additions], y=[a["v"] for a in additions],
+            mode="markers", showlegend=False,
+            marker=dict(size=12,
+                        color=[conc_color[a["conc"]] for a in additions],
+                        symbol=[vol_symbol[a["vol"]] for a in additions],
+                        line=dict(width=1, color="#1A1620")),
+            customdata=[[a["conc"], a["vol"]] for a in additions],
+            hovertemplate="%{x:.1f} min · %{y:.3f} V<br>%{customdata[0]} · "
+                          "%{customdata[1]}<extra></extra>"))
+        for c in conc_color:
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode="markers", name=str(c),
+                legendgroup="conc", legendgrouptitle_text="Concentration",
+                marker=dict(size=11, color=conc_color[c], symbol="circle",
+                            line=dict(width=1, color="#1A1620"))))
+        for vol in vol_symbol:
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None], mode="markers", name=str(vol),
+                legendgroup="vol", legendgrouptitle_text="Volume",
+                marker=dict(size=11, color="#6B6573", symbol=vol_symbol[vol],
+                            line=dict(width=1, color="#1A1620"))))
+    fig.update_layout(margin=dict(l=10, r=10, t=34, b=42), height=520,
+                      xaxis_title="time (min)", yaxis_title="potential (V)",
+                      hovermode="closest", legend=dict(orientation="v", x=1.01, y=1))
+    if title:
+        fig.update_layout(title=dict(text=title, font=dict(size=14), x=0.01))
+    return fig
+
+
+def ocp_analysis(f):
+    """Open-circuit potential: a raw run becomes a fill-in template; a filled
+    template becomes an annotated potential-vs-time graph."""
+    text = _read_text(f)
+    is_raw = ("[begin data]" in text.lower()
+              or "open circuit potential" in text.lower())
+    stem = os.path.splitext(f.name)[0]
+
+    if is_raw:
+        t_s, volt = _parse_ocp_raw(text)
+        if t_s.size < 2:
+            st.error("Couldn't read Time / Voltage rows from this file.")
+            return
+        st.caption("Raw open-circuit-potential run loaded. Below is your **fill-in "
+                   "template** — rename each `Conc_n` header to a NaBH₄ "
+                   "concentration, enter the volume (mL) in the row at the minute "
+                   "you added it, save as CSV, and re-upload here for the "
+                   "annotated graph.")
+        st.plotly_chart(_ocp_fig(t_s / 60.0, volt, [], {}, {}, title=stem),
+                        use_container_width=True, theme="streamlit")
+        tmpl = pd.DataFrame({"Time (s)": np.round(t_s, 3),
+                             "Time (min)": np.round(t_s / 60.0, 4),
+                             "Voltage (V)": volt})
+        for k in range(1, 5):
+            tmpl[f"Conc_{k}"] = ""
+        st.dataframe(tmpl.head(12), use_container_width=True)
+        st.download_button(
+            "⬇️ Fill-in template (CSV)",
+            data=tmpl.to_csv(index=False).encode("utf-8"),
+            file_name=f"{stem}_OCP_template.csv", mime="text/csv",
+            key="dl_ocp_tmpl")
+        return
+
+    try:
+        df = pd.read_csv(io.StringIO(text))
+    except Exception as e:                              # noqa: BLE001
+        st.error(f"Couldn't read this as a template CSV: {e}")
+        return
+    tmin, volt, additions, err = _ocp_template_data(df)
+    if err:
+        st.error(f"Template problem: {err}.")
+        return
+
+    title = st.text_input("Graph title", value=stem, key="ocp_title")
+    if not additions:
+        st.info("No additions marked yet — put the volume (mL) in a concentration "
+                "column at the row of each addition, then re-upload. Showing the "
+                "raw curve for now.")
+        st.plotly_chart(_ocp_fig(tmin, volt, [], {}, {}, title=title),
+                        use_container_width=True, theme="streamlit")
+        return
+
+    concs = list(dict.fromkeys(a["conc"] for a in additions))
+    vols = sorted(dict.fromkeys(a["vol"] for a in additions))
+    conc_color = {c: OCP_COLORS[i % len(OCP_COLORS)] for i, c in enumerate(concs)}
+
+    st.markdown("**Symbol for each volume** (colour is auto-assigned per concentration)")
+    scols = st.columns(min(len(vols), 4))
+    vol_symbol = {}
+    for i, vol in enumerate(vols):
+        vol_symbol[vol] = scols[i % len(scols)].selectbox(
+            str(vol), OCP_SYMBOLS, index=i % len(OCP_SYMBOLS), key=f"ocpsym_{i}")
+
+    b1, b2, b3 = st.columns([1.1, 1, 1])
+    hl = b1.checkbox("Highlight a potential band", value=False)
+    vmin, vmax = float(np.nanmin(volt)), float(np.nanmax(volt))
+    ylo = b2.number_input("From (V)", value=round(vmin, 3), step=0.01,
+                          format="%.3f", disabled=not hl)
+    yhi = b3.number_input("To (V)", value=round(vmax, 3), step=0.01,
+                          format="%.3f", disabled=not hl)
+
+    fig = _ocp_fig(tmin, volt, additions, conc_color, vol_symbol,
+                   title=title, band=(ylo, yhi) if hl else None)
+    st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+
+    ev = pd.DataFrame([{"Time (min)": round(a["t"], 2),
+                        "Potential (V)": round(a["v"], 4),
+                        "Concentration": a["conc"], "Volume": a["vol"]}
+                       for a in additions])
+    st.markdown("**Additions**")
+    st.dataframe(ev, use_container_width=True, hide_index=True)
+    st.download_button("⬇️ Additions (CSV)",
+                       ev.to_csv(index=False).encode("utf-8"),
+                       f"{stem}_OCP_additions.csv", "text/csv", key="dl_ocp_ev")
+
+
+# --------------------------------------------------------------------------- #
 #  Sidebar controls
 # --------------------------------------------------------------------------- #
 def sidebar_controls():
     sb = st.sidebar
     sb.header("Data")
     source = sb.radio(
-        "Input", ["Single file", "Combine raw files", "Kinetics trend (OceanView)"],
+        "Input", ["Single file", "Combine raw files", "Kinetics trend (OceanView)",
+                  "Potential vs time (OCP)"],
         help="“Combine raw files” merges many raw instrument exports of the "
              "same format into one wavelength + many-series dataset, ready for "
              "the analyses below.")
     up = files = raw_type = None
+    if source == "Potential vs time (OCP)":
+        up = sb.file_uploader(
+            "OCP file — raw .txt, or your filled-in template .csv",
+            type=["txt", "csv"])
+        sb.caption("Upload the raw run to get a fill-in template; upload the "
+                   "filled template to get the annotated graph.")
+        return up, files, raw_type, source, "OCP", None
     if source == "Kinetics trend (OceanView)":
         files = sb.file_uploader(
             "OceanView trend files (.txt)", type=["txt"],
@@ -1047,6 +1261,15 @@ def main():
     theme.render_header()
 
     up, files, raw_type, source, analysis, params = sidebar_controls()
+
+    if source == "Potential vs time (OCP)":
+        if up is None:
+            st.info("⬅️ Upload your open-circuit-potential file in the "
+                    "sidebar — the raw run (.txt) for a template, or your "
+                    "filled-in template (.csv) for the annotated graph.")
+            return
+        ocp_analysis(up)
+        return
 
     if source == "Kinetics trend (OceanView)":
         if not files:
