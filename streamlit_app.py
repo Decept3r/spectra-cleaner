@@ -867,8 +867,12 @@ def kinetics_analysis(files):
 #  Open-circuit potential (potential vs time; reagent-addition annotations)
 # --------------------------------------------------------------------------- #
 OCP_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "triangle-down",
-               "star", "cross", "x", "pentagon", "hexagram",
-               "star-triangle-up", "hourglass", "bowtie", "diamond-tall"]
+               "star", "cross", "x", "pentagon", "hexagon",
+               "triangle-left", "triangle-right"]
+OCP_MPL = {"circle": "o", "square": "s", "diamond": "D", "triangle-up": "^",
+           "triangle-down": "v", "star": "*", "cross": "P", "x": "X",
+           "pentagon": "p", "hexagon": "h", "triangle-left": "<",
+           "triangle-right": ">"}
 # validated standout categorical order (one colour per concentration)
 def _distinct_colors(n):
     """n visually distinct colours: eight evenly-spaced rainbow hues first, then
@@ -999,6 +1003,53 @@ def _ocp_fig(tmin, volt, additions, conc_color, vol_symbol, title="",
     return fig
 
 
+def _ocp_png(tmin, volt, additions, conc_color, vol_symbol, title="",
+             band=None, offset=0.0):
+    """Render the annotated potential-vs-time figure to PNG bytes (white bg)."""
+    import matplotlib.pyplot as _plt
+    import matplotlib.patheffects as _pe
+    from matplotlib.lines import Line2D
+    light = {"figure.facecolor": "white", "axes.facecolor": "white",
+             "savefig.facecolor": "white", "axes.edgecolor": "#888888",
+             "axes.labelcolor": "#222222", "axes.titlecolor": "#222222",
+             "xtick.color": "#444444", "ytick.color": "#444444",
+             "text.color": "#222222", "axes.grid": True,
+             "grid.color": "#DDDDDD", "font.size": 11}
+    with _plt.rc_context(light):
+        fig, ax = _plt.subplots(figsize=(11, 5.5))
+        if band:
+            ax.axhspan(min(band), max(band), color="#F0D737", alpha=0.30,
+                       lw=0, zorder=0)
+        for ln in ax.plot(tmin, volt, color="#2E5A6B", lw=1.4, zorder=1):
+            ln.set_path_effects([_pe.Normal()])   # cancel the neon glow patch
+        for a in additions:
+            ax.scatter(a["t"], a["v"] + offset,
+                       marker=OCP_MPL.get(vol_symbol[a["vol"]], "o"),
+                       c=conc_color[a["conc"]], s=95, edgecolors="#1A1620",
+                       linewidths=0.8, zorder=3)
+        ax.set_xlabel("time (min)")
+        ax.set_ylabel("potential (V)")
+        if title:
+            ax.set_title(title, loc="left", fontsize=12)
+        ch = [Line2D([0], [0], marker="o", color="none", markersize=9,
+                     markerfacecolor=conc_color[c], markeredgecolor="#1A1620",
+                     label=str(c)) for c in conc_color]
+        vh = [Line2D([0], [0], marker=OCP_MPL.get(vol_symbol[v], "o"),
+                     color="none", markersize=9, markerfacecolor="#6B6573",
+                     markeredgecolor="#1A1620", label=str(v)) for v in vol_symbol]
+        leg1 = ax.legend(handles=ch, title="Concentration", loc="upper left",
+                         bbox_to_anchor=(1.01, 1.0), fontsize=8,
+                         title_fontsize=9)
+        ax.add_artist(leg1)
+        ax.legend(handles=vh, title="Volume", loc="lower left",
+                  bbox_to_anchor=(1.01, 0.0), fontsize=8, title_fontsize=9)
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=160, bbox_inches="tight",
+                    facecolor="white")
+        _plt.close(fig)
+    return buf.getvalue()
+
+
 def ocp_analysis(f):
     """Open-circuit potential: a raw run becomes a fill-in template; a filled
     template becomes an annotated potential-vs-time graph."""
@@ -1079,6 +1130,13 @@ def ocp_analysis(f):
     fig = _ocp_fig(tmin, volt, additions, conc_color, vol_symbol,
                    title=title, band=(ylo, yhi) if hl else None, offset=off)
     st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+
+    st.download_button(
+        "⬇️ Annotated figure (PNG)",
+        data=_ocp_png(tmin, volt, additions, conc_color, vol_symbol,
+                      title=title, band=(ylo, yhi) if hl else None, offset=off),
+        file_name=f"{stem}_OCP_annotated.png", mime="image/png",
+        key="dl_ocp_png")
 
     ev = pd.DataFrame([{"Time (min)": round(a["t"], 2),
                         "Potential (V)": round(a["v"], 4),
