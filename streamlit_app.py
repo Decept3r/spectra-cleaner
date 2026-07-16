@@ -204,6 +204,32 @@ def _editor_component(ver):
     return components.declare_component("raman_window_editor_" + ver, path=base)
 
 
+_OCP_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>html,body{margin:0;padding:0;height:560px}#c{width:100%;height:548px}</style>\n</head>\n<body>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});},value:function(v){post(\"streamlit:setComponentValue\",{value:v,dataType:\"json\"});}};\nvar GD=null,CX=[],CY=[],MX=[],COL=[],SYM=[],HOV=[],CLAB=[],CCOL=[],SLAB=[],SSYM=[],OFF=0,BAND=null,TITLE=\"\";\nvar lastSeed=null,wired=false,dragIdx=-1;\nvar curBg=\"#0e1117\",curFg=\"#fafafa\",curGrid=\"rgba(250,250,250,0.13)\";\nfunction interp(x){var n=CX.length;if(n===0)return 0;if(x<=CX[0])return CY[0];if(x>=CX[n-1])return CY[n-1];var lo=0,hi=n-1;while(hi-lo>1){var mid=(lo+hi)>>1;if(CX[mid]<=x){lo=mid;}else{hi=mid;}}var t=(x-CX[lo])/((CX[hi]-CX[lo])||1);return CY[lo]+t*(CY[hi]-CY[lo]);}\nfunction mYs(){return MX.map(function(x){return interp(x)+OFF;});}\nfunction sendVal(){Streamlit.value({xs:MX.slice(),ts:Date.now()});}\nfunction legendTraces(){var tr=[];var i;for(i=0;i<CLAB.length;i++){tr.push({x:[null],y:[null],type:\"scatter\",mode:\"markers\",name:CLAB[i],legendgroup:\"conc\",legendgrouptitle:{text:\"Concentration\"},marker:{size:11,color:CCOL[i],symbol:\"circle\",line:{width:1,color:\"#1A1620\"}}});}for(i=0;i<SLAB.length;i++){tr.push({x:[null],y:[null],type:\"scatter\",mode:\"markers\",name:SLAB[i],legendgroup:\"vol\",legendgrouptitle:{text:\"Volume\"},marker:{size:11,color:\"#6B6573\",symbol:SSYM[i],line:{width:1,color:\"#1A1620\"}}});}return tr;}\nfunction draw(){var line={x:CX,y:CY,type:\"scatter\",mode:\"lines\",line:{width:1.6,color:\"#2E5A6B\"},hoverinfo:\"skip\",showlegend:false};var mk={x:MX.slice(),y:mYs(),type:\"scatter\",mode:\"markers\",showlegend:false,text:HOV,hovertemplate:\"%{x:.1f} min<br>%{text}<extra></extra>\",marker:{size:13,color:COL,symbol:SYM,line:{width:1,color:\"#1A1620\"}}};var traces=[line,mk].concat(legendTraces());var shapes=[];if(BAND){shapes.push({type:\"rect\",xref:\"paper\",x0:0,x1:1,yref:\"y\",y0:Math.min(BAND[0],BAND[1]),y1:Math.max(BAND[0],BAND[1]),fillcolor:\"rgba(240,215,55,0.28)\",line:{width:0},layer:\"below\"});}var layout={margin:{l:60,r:14,t:(TITLE?30:12),b:46},height:548,paper_bgcolor:curBg,plot_bgcolor:curBg,font:{color:curFg},hovermode:\"closest\",showlegend:true,legend:{orientation:\"v\",x:1.01,y:1,font:{color:curFg}},xaxis:{title:{text:\"time (min)\"},gridcolor:curGrid,zeroline:false,color:curFg,fixedrange:true},yaxis:{title:{text:\"potential (V)\"},gridcolor:curGrid,zeroline:false,color:curFg,fixedrange:true},shapes:shapes,dragmode:false};if(TITLE){layout.title={text:TITLE,font:{size:14,color:curFg},x:0.01};}var config={displaylogo:false,responsive:true,displayModeBar:false};Plotly.react(\"c\",traces,layout,config).then(function(){if(!wired){wireDrag();wired=true;}GD.style.cursor=\"\";Streamlit.height(560);});}\nfunction restyleMarkers(){Plotly.restyle(\"c\",{x:[MX.slice()],y:[mYs()]},[1]);}\nfunction nearestMarker(e){if(!GD||!GD._fullLayout)return -1;var xa=GD._fullLayout.xaxis,ya=GD._fullLayout.yaxis,bb=GD.getBoundingClientRect();var px=e.clientX-bb.left-xa._offset,py=e.clientY-bb.top-ya._offset;if(px<0||px>xa._length||py<0||py>ya._length)return -1;var md=xa.p2d(px);var tol=Math.abs(xa.range[1]-xa.range[0])/xa._length*18;var best=-1,bd=tol,i;for(i=0;i<MX.length;i++){var d=Math.abs(md-MX[i]);if(d<bd){bd=d;best=i;}}return best;}\nfunction mouseDataX(e){var xa=GD._fullLayout.xaxis;var p=e.clientX-GD.getBoundingClientRect().left-xa._offset;var d=xa.p2d(p);if(d<xa.range[0])d=xa.range[0];if(d>xa.range[1])d=xa.range[1];return d;}\nfunction onDown(e){if(!GD||!GD._fullLayout)return;var i=nearestMarker(e);if(i>=0){dragIdx=i;GD.style.cursor=\"grabbing\";e.preventDefault();e.stopPropagation();}}\nfunction onHover(e){if(dragIdx>=0||!GD||!GD._fullLayout)return;GD.style.cursor=(nearestMarker(e)>=0)?\"grab\":\"\";}\nfunction onMove(e){if(dragIdx<0)return;MX[dragIdx]=mouseDataX(e);restyleMarkers();}\nfunction onUp(){if(dragIdx<0)return;dragIdx=-1;GD.style.cursor=\"\";sendVal();}\nfunction wireDrag(){GD.addEventListener(\"mousedown\",onDown,true);GD.addEventListener(\"mousemove\",onHover);document.addEventListener(\"mousemove\",onMove,true);document.addEventListener(\"mouseup\",onUp,true);}\nfunction build(args,theme){if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}GD=document.getElementById(\"c\");args=args||{};var dark=!!(theme&&theme.base===\"dark\");curBg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");curFg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");curGrid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";CX=args.cx||[];CY=args.cy||[];COL=args.col||[];SYM=args.sym||[];HOV=args.hov||[];CLAB=args.clab||[];CCOL=args.ccol||[];SLAB=args.slab||[];SSYM=args.ssym||[];OFF=args.off||0;BAND=args.band||null;TITLE=args.title||\"\";var seed=args.seed;if(seed!==lastSeed||!wired){MX=(args.mx||[]).slice();lastSeed=seed;}draw();}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
+_OCP_VER = hashlib.md5(_OCP_HTML.encode("utf-8")).hexdigest()[:8]
+
+
+@st.cache_resource(show_spinner=False)
+def _ocp_component(ver):
+    """Materialise the draggable OCP-marker frontend and declare the
+    bidirectional component (same offline-plotly trick as the editor)."""
+    import plotly as _plotly
+    base = os.path.join(tempfile.gettempdir(), "ocp_editor_" + ver)
+    os.makedirs(base, exist_ok=True)
+    js_dst = os.path.join(base, "plotly.min.js")
+    js_src = os.path.join(os.path.dirname(_plotly.__file__),
+                          "package_data", "plotly.min.js")
+    try:
+        if os.path.isfile(js_src) and (
+                not os.path.exists(js_dst)
+                or os.path.getsize(js_dst) != os.path.getsize(js_src)):
+            shutil.copyfile(js_src, js_dst)
+    except OSError:
+        pass
+    with open(os.path.join(base, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(_OCP_HTML)
+    return components.declare_component("ocp_editor_" + ver, path=base)
+
+
 def _shapes_to_peaks(shapes, x, yref, xmin, xmax):
     """Turn the Plotly rectangle shapes returned by the editor (x0/x1 in cm^-1)
     back into integration windows; recompute each centre and ignore slivers --
@@ -945,19 +971,18 @@ def _ocp_template_data(df):
         return None, None, None, "no time column (Time (min) or Time (s))"
     ann = [c for c in cols if c not in (vcol, mcol, scol)]
     additions = []
-    for c in ann:
-        col = df[c]
-        for r in range(len(col)):
-            cell = col.iloc[r]
+    # The row an entry sits in is only a placeholder -- the real minute is
+    # chosen later by dragging.  Walk row-major so additions keep the order
+    # they were typed in (top to bottom, left to right within a row).
+    for r in range(len(df)):
+        for c in ann:
+            cell = df[c].iloc[r]
             if pd.isna(cell) or str(cell).strip() == "":
-                continue
-            if r >= tmin.size or not np.isfinite(tmin[r]) or not np.isfinite(volt[r]):
                 continue
             raw = str(cell).strip()
             num = pd.to_numeric(raw, errors="coerce")
             vol = (f"{num:g} mL" if pd.notna(num) else raw)
-            additions.append({"t": float(tmin[r]), "v": float(volt[r]),
-                              "conc": c, "vol": vol})
+            additions.append({"conc": c, "vol": vol})
     return tmin, volt, additions, None
 
 
@@ -1123,17 +1148,61 @@ def ocp_analysis(f):
     yhi = b3.number_input("To (V)", value=round(vmax, 3), step=0.01,
                           format="%.3f", disabled=not hl)
     lift = st.slider("Lift markers above the curve (% of span)", 0, 15, 4, 1,
-                     help="Floats each symbol above its data point so the "
-                          "curve stays visible underneath.")
+                     help="Floats each symbol above the curve so the line stays "
+                          "visible underneath; the marker keeps this height as "
+                          "you drag it.")
     off = (lift / 100.0) * (vmax - vmin)
 
-    fig = _ocp_fig(tmin, volt, additions, conc_color, vol_symbol,
-                   title=title, band=(ylo, yhi) if hl else None, offset=off)
-    st.plotly_chart(fig, use_container_width=True, theme="streamlit")
+    st.caption("**Drag each marker left/right to the minute the addition was "
+               "actually made.** They start evenly spread in the order you "
+               "entered them and ride at a fixed height above the curve; the "
+               "table and download update as you move them.")
+
+    # curve sorted by time for stable interpolation of the dragged minute
+    order = np.argsort(tmin)
+    tx, vx = tmin[order], volt[order]
+    tlo, thi = float(tx[0]), float(tx[-1])
+    tspan = (thi - tlo) or 1.0
+    n = len(additions)
+    sig = (tuple((a["conc"], a["vol"]) for a in additions),
+           round(tlo, 4), round(thi, 4))
+    if st.session_state.get("_ocp_sig") != sig:
+        st.session_state["_ocp_sig"] = sig
+        st.session_state["_ocp_mx"] = [tlo + tspan * (i + 0.5) / n
+                                       for i in range(n)]
+        st.session_state["_ocp_seed"] = st.session_state.get("_ocp_seed", 0) + 1
+    mx = [float(v) for v in st.session_state["_ocp_mx"]]
+
+    comp = _ocp_component(_OCP_VER)
+    ret = comp(
+        cx=tx.astype(float).tolist(), cy=vx.astype(float).tolist(), mx=mx,
+        col=[conc_color[a["conc"]] for a in additions],
+        sym=[vol_symbol[a["vol"]] for a in additions],
+        hov=[f"{a['conc']} · {a['vol']}" for a in additions],
+        clab=[str(c) for c in concs], ccol=[conc_color[c] for c in concs],
+        slab=[str(v) for v in vols], ssym=[vol_symbol[v] for v in vols],
+        off=float(off), band=[float(ylo), float(yhi)] if hl else None,
+        title=title, seed=int(st.session_state["_ocp_seed"]),
+        key="ocp_editor", default=None)
+
+    if isinstance(ret, dict) and ret.get("ts") and \
+            ret.get("ts") != st.session_state.get("_ocp_ts"):
+        st.session_state["_ocp_ts"] = ret["ts"]
+        xs = ret.get("xs")
+        if xs and len(xs) == n:
+            st.session_state["_ocp_mx"] = [float(x) for x in xs]
+            mx = [float(x) for x in xs]
+
+    # real additions: minute = where the marker was dragged, voltage read off
+    # the curve there (so it matches the symbol's height minus the lift)
+    real = [{"t": mx[i], "v": float(np.interp(mx[i], tx, vx)),
+             "conc": a["conc"], "vol": a["vol"]}
+            for i, a in enumerate(additions)]
+    real_sorted = sorted(real, key=lambda a: a["t"])
 
     st.download_button(
         "⬇️ Annotated figure (PNG)",
-        data=_ocp_png(tmin, volt, additions, conc_color, vol_symbol,
+        data=_ocp_png(tmin, volt, real, conc_color, vol_symbol,
                       title=title, band=(ylo, yhi) if hl else None, offset=off),
         file_name=f"{stem}_OCP_annotated.png", mime="image/png",
         key="dl_ocp_png")
@@ -1141,8 +1210,8 @@ def ocp_analysis(f):
     ev = pd.DataFrame([{"Time (min)": round(a["t"], 2),
                         "Potential (V)": round(a["v"], 4),
                         "Concentration": a["conc"], "Volume": a["vol"]}
-                       for a in additions])
-    st.markdown("**Additions**")
+                       for a in real_sorted])
+    st.markdown("**Additions** — minute is where you dragged each marker")
     st.dataframe(ev, use_container_width=True, hide_index=True)
     st.download_button("⬇️ Additions (CSV)",
                        ev.to_csv(index=False).encode("utf-8"),
