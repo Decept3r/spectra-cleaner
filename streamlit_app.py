@@ -204,7 +204,7 @@ def _editor_component(ver):
     return components.declare_component("raman_window_editor_" + ver, path=base)
 
 
-_OCP_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>html,body{margin:0;padding:0;height:560px}#c{width:100%;height:548px}</style>\n</head>\n<body>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});},value:function(v){post(\"streamlit:setComponentValue\",{value:v,dataType:\"json\"});}};\nvar GD=null,CX=[],CY=[],MX=[],COL=[],SYM=[],HOV=[],CLAB=[],CCOL=[],SLAB=[],SSYM=[],OFF=0,BAND=null,TITLE=\"\";\nvar lastSeed=null,wired=false,dragIdx=-1;\nvar curBg=\"#0e1117\",curFg=\"#fafafa\",curGrid=\"rgba(250,250,250,0.13)\";\nfunction interp(x){var n=CX.length;if(n===0)return 0;if(x<=CX[0])return CY[0];if(x>=CX[n-1])return CY[n-1];var lo=0,hi=n-1;while(hi-lo>1){var mid=(lo+hi)>>1;if(CX[mid]<=x){lo=mid;}else{hi=mid;}}var t=(x-CX[lo])/((CX[hi]-CX[lo])||1);return CY[lo]+t*(CY[hi]-CY[lo]);}\nfunction mYs(){return MX.map(function(x){return interp(x)+OFF;});}\nfunction sendVal(){Streamlit.value({xs:MX.slice(),ts:Date.now()});}\nfunction legendTraces(){var tr=[];var i;for(i=0;i<CLAB.length;i++){tr.push({x:[null],y:[null],type:\"scatter\",mode:\"markers\",name:CLAB[i],legendgroup:\"conc\",legendgrouptitle:{text:\"Concentration\"},marker:{size:11,color:CCOL[i],symbol:\"circle\",line:{width:1,color:\"#1A1620\"}}});}for(i=0;i<SLAB.length;i++){tr.push({x:[null],y:[null],type:\"scatter\",mode:\"markers\",name:SLAB[i],legendgroup:\"vol\",legendgrouptitle:{text:\"Volume\"},marker:{size:11,color:\"#6B6573\",symbol:SSYM[i],line:{width:1,color:\"#1A1620\"}}});}return tr;}\nfunction draw(){var line={x:CX,y:CY,type:\"scatter\",mode:\"lines\",line:{width:1.6,color:\"#2E5A6B\"},hoverinfo:\"skip\",showlegend:false};var mk={x:MX.slice(),y:mYs(),type:\"scatter\",mode:\"markers\",showlegend:false,text:HOV,hovertemplate:\"%{x:.1f} min<br>%{text}<extra></extra>\",marker:{size:13,color:COL,symbol:SYM,line:{width:1,color:\"#1A1620\"}}};var traces=[line,mk].concat(legendTraces());var shapes=[];if(BAND){shapes.push({type:\"rect\",xref:\"paper\",x0:0,x1:1,yref:\"y\",y0:Math.min(BAND[0],BAND[1]),y1:Math.max(BAND[0],BAND[1]),fillcolor:\"rgba(240,215,55,0.28)\",line:{width:0},layer:\"below\"});}var layout={margin:{l:60,r:14,t:(TITLE?30:12),b:46},height:548,paper_bgcolor:curBg,plot_bgcolor:curBg,font:{color:curFg},hovermode:\"closest\",showlegend:true,legend:{orientation:\"v\",x:1.01,y:1,font:{color:curFg}},xaxis:{title:{text:\"time (min)\"},gridcolor:curGrid,zeroline:false,color:curFg,fixedrange:true},yaxis:{title:{text:\"potential (V)\"},gridcolor:curGrid,zeroline:false,color:curFg,fixedrange:true},shapes:shapes,dragmode:false};if(TITLE){layout.title={text:TITLE,font:{size:14,color:curFg},x:0.01};}var config={displaylogo:false,responsive:true,displayModeBar:false};Plotly.react(\"c\",traces,layout,config).then(function(){if(!wired){wireDrag();wired=true;}GD.style.cursor=\"\";Streamlit.height(560);});}\nfunction restyleMarkers(){Plotly.restyle(\"c\",{x:[MX.slice()],y:[mYs()]},[1]);}\nfunction nearestMarker(e){if(!GD||!GD._fullLayout)return -1;var xa=GD._fullLayout.xaxis,ya=GD._fullLayout.yaxis,bb=GD.getBoundingClientRect();var px=e.clientX-bb.left-xa._offset,py=e.clientY-bb.top-ya._offset;if(px<0||px>xa._length||py<0||py>ya._length)return -1;var md=xa.p2d(px);var tol=Math.abs(xa.range[1]-xa.range[0])/xa._length*18;var best=-1,bd=tol,i;for(i=0;i<MX.length;i++){var d=Math.abs(md-MX[i]);if(d<bd){bd=d;best=i;}}return best;}\nfunction mouseDataX(e){var xa=GD._fullLayout.xaxis;var p=e.clientX-GD.getBoundingClientRect().left-xa._offset;var d=xa.p2d(p);if(d<xa.range[0])d=xa.range[0];if(d>xa.range[1])d=xa.range[1];return d;}\nfunction onDown(e){if(!GD||!GD._fullLayout)return;var i=nearestMarker(e);if(i>=0){dragIdx=i;GD.style.cursor=\"grabbing\";e.preventDefault();e.stopPropagation();}}\nfunction onHover(e){if(dragIdx>=0||!GD||!GD._fullLayout)return;GD.style.cursor=(nearestMarker(e)>=0)?\"grab\":\"\";}\nfunction onMove(e){if(dragIdx<0)return;MX[dragIdx]=mouseDataX(e);restyleMarkers();}\nfunction onUp(){if(dragIdx<0)return;dragIdx=-1;GD.style.cursor=\"\";sendVal();}\nfunction wireDrag(){GD.addEventListener(\"mousedown\",onDown,true);GD.addEventListener(\"mousemove\",onHover);document.addEventListener(\"mousemove\",onMove,true);document.addEventListener(\"mouseup\",onUp,true);}\nfunction build(args,theme){if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}GD=document.getElementById(\"c\");args=args||{};var dark=!!(theme&&theme.base===\"dark\");curBg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");curFg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");curGrid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";CX=args.cx||[];CY=args.cy||[];COL=args.col||[];SYM=args.sym||[];HOV=args.hov||[];CLAB=args.clab||[];CCOL=args.ccol||[];SLAB=args.slab||[];SSYM=args.ssym||[];OFF=args.off||0;BAND=args.band||null;TITLE=args.title||\"\";var seed=args.seed;if(seed!==lastSeed||!wired){MX=(args.mx||[]).slice();lastSeed=seed;}draw();}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
+_OCP_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>\nhtml,body{margin:0;padding:0;height:588px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}\n#bar{height:30px;display:flex;align-items:center;gap:12px;padding:2px 4px 4px 6px;box-sizing:border-box}\n#apply{font-size:13px;font-weight:600;padding:5px 15px;border-radius:7px;border:1px solid #34c9c0;background:#13b3aa;color:#04211f;cursor:pointer;transition:opacity .15s}\n#apply:disabled{cursor:default;opacity:.4}\n#status{font-size:12px;opacity:.85}\n#c{width:100%;height:548px}\n</style>\n</head>\n<body>\n<div id=\"bar\"><button id=\"apply\" disabled>&#10003; Apply moves</button><span id=\"status\"></span></div>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});},value:function(v){post(\"streamlit:setComponentValue\",{value:v,dataType:\"json\"});}};\nvar GD=null,CX=[],CY=[],MX=[],COL=[],SYM=[],HOV=[],CLAB=[],CCOL=[],SLAB=[],SSYM=[],OFF=0,BAND=null,TITLE=\"\";\nvar lastSeed=null,wired=false,dragIdx=-1,dirty=0,applyWired=false;\nvar curBg=\"#0e1117\",curFg=\"#fafafa\",curGrid=\"rgba(250,250,250,0.13)\";\nfunction interp(x){var n=CX.length;if(n===0)return 0;if(x<=CX[0])return CY[0];if(x>=CX[n-1])return CY[n-1];var lo=0,hi=n-1;while(hi-lo>1){var mid=(lo+hi)>>1;if(CX[mid]<=x){lo=mid;}else{hi=mid;}}var t=(x-CX[lo])/((CX[hi]-CX[lo])||1);return CY[lo]+t*(CY[hi]-CY[lo]);}\nfunction mYs(){return MX.map(function(x){return interp(x)+OFF;});}\nfunction sendVal(){Streamlit.value({xs:MX.slice(),ts:Date.now()});}\nfunction setStatus(msg){var b=document.getElementById(\"apply\"),s=document.getElementById(\"status\");if(!b||!s)return;if(typeof msg===\"string\"){s.textContent=msg;s.style.color=curFg;return;}if(dirty>0){b.disabled=false;s.textContent=dirty+\" unsaved move\"+(dirty>1?\"s\":\"\");s.style.color=curFg;}else{b.disabled=true;s.textContent=\"\";}}\nfunction onApply(){if(dirty>0){sendVal();dirty=0;setStatus(\"saving\u2026\");}else{setStatus();}}\nfunction legendTraces(){var tr=[];var i;for(i=0;i<CLAB.length;i++){tr.push({x:[null],y:[null],type:\"scatter\",mode:\"markers\",name:CLAB[i],legendgroup:\"conc\",legendgrouptitle:{text:\"Concentration\"},marker:{size:11,color:CCOL[i],symbol:\"circle\",line:{width:1,color:\"#1A1620\"}}});}for(i=0;i<SLAB.length;i++){tr.push({x:[null],y:[null],type:\"scatter\",mode:\"markers\",name:SLAB[i],legendgroup:\"vol\",legendgrouptitle:{text:\"Volume\"},marker:{size:11,color:\"#6B6573\",symbol:SSYM[i],line:{width:1,color:\"#1A1620\"}}});}return tr;}\nfunction draw(reset){var keepx=null;if(!reset&&GD&&GD._fullLayout&&GD._fullLayout.xaxis&&GD._fullLayout.xaxis.range){keepx=GD._fullLayout.xaxis.range.slice();}var line={x:CX,y:CY,type:\"scatter\",mode:\"lines\",line:{width:1.6,color:\"#2E5A6B\"},hoverinfo:\"skip\",showlegend:false};var mk={x:MX.slice(),y:mYs(),type:\"scatter\",mode:\"markers\",showlegend:false,text:HOV,hovertemplate:\"%{x:.1f} min<br>%{text}<extra></extra>\",marker:{size:13,color:COL,symbol:SYM,line:{width:1,color:\"#1A1620\"}}};var traces=[line,mk].concat(legendTraces());var shapes=[];if(BAND){shapes.push({type:\"rect\",xref:\"paper\",x0:0,x1:1,yref:\"y\",y0:Math.min(BAND[0],BAND[1]),y1:Math.max(BAND[0],BAND[1]),fillcolor:\"rgba(240,215,55,0.28)\",line:{width:0},layer:\"below\"});}var layout={margin:{l:60,r:14,t:(TITLE?30:12),b:46},height:548,paper_bgcolor:curBg,plot_bgcolor:curBg,font:{color:curFg},hovermode:\"closest\",showlegend:true,legend:{orientation:\"v\",x:1.01,y:1,font:{color:curFg}},xaxis:{title:{text:\"time (min)\"},gridcolor:curGrid,zeroline:false,color:curFg},yaxis:{title:{text:\"potential (V)\"},gridcolor:curGrid,zeroline:false,color:curFg,fixedrange:true},shapes:shapes,dragmode:\"zoom\"};if(keepx){layout.xaxis.range=keepx;layout.xaxis.autorange=false;}if(TITLE){layout.title={text:TITLE,font:{size:14,color:curFg},x:0.01};}var config={displaylogo:false,responsive:true,displayModeBar:true,scrollZoom:false,modeBarButtonsToRemove:[\"select2d\",\"lasso2d\",\"toImage\"]};Plotly.react(\"c\",traces,layout,config).then(function(){if(!wired){wireDrag();wired=true;}GD.style.cursor=\"\";Streamlit.height(588);});}\nfunction restyleMarkers(){Plotly.restyle(\"c\",{x:[MX.slice()],y:[mYs()]},[1]);}\nfunction nearestMarker(e){if(!GD||!GD._fullLayout)return -1;var xa=GD._fullLayout.xaxis,ya=GD._fullLayout.yaxis,bb=GD.getBoundingClientRect();var pxr=e.clientX-bb.left-xa._offset,pyr=e.clientY-bb.top-ya._offset;if(pxr<0||pxr>xa._length||pyr<0||pyr>ya._length)return -1;var mdx=xa.p2d(pxr),mdy=ya.p2d(pyr);var tolx=Math.abs(xa.range[1]-xa.range[0])/xa._length*16;var toly=Math.abs(ya.range[1]-ya.range[0])/ya._length*22;var best=-1,bestd=Infinity,i;for(i=0;i<MX.length;i++){var dx=Math.abs(mdx-MX[i])/tolx,dy=Math.abs(mdy-(interp(MX[i])+OFF))/toly;if(dx<1&&dy<1){var d=dx*dx+dy*dy;if(d<bestd){bestd=d;best=i;}}}return best;}\nfunction mouseDataX(e){var xa=GD._fullLayout.xaxis;var p=e.clientX-GD.getBoundingClientRect().left-xa._offset;var d=xa.p2d(p);if(d<xa.range[0])d=xa.range[0];if(d>xa.range[1])d=xa.range[1];return d;}\nfunction onDown(e){if(!GD||!GD._fullLayout)return;var i=nearestMarker(e);if(i>=0){dragIdx=i;GD.style.cursor=\"grabbing\";e.preventDefault();e.stopPropagation();}}\nfunction onHover(e){if(dragIdx>=0||!GD||!GD._fullLayout)return;GD.style.cursor=(nearestMarker(e)>=0)?\"grab\":\"\";}\nfunction onMove(e){if(dragIdx<0)return;MX[dragIdx]=mouseDataX(e);restyleMarkers();e.preventDefault();e.stopPropagation();}\nfunction onUp(e){if(dragIdx<0)return;dragIdx=-1;GD.style.cursor=\"\";dirty++;setStatus();}\nfunction wireDrag(){GD.addEventListener(\"mousedown\",onDown,true);GD.addEventListener(\"mousemove\",onHover);document.addEventListener(\"mousemove\",onMove,true);document.addEventListener(\"mouseup\",onUp,true);}\nfunction build(args,theme){if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}GD=document.getElementById(\"c\");args=args||{};var dark=!!(theme&&theme.base===\"dark\");curBg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");curFg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");curGrid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";CX=args.cx||[];CY=args.cy||[];COL=args.col||[];SYM=args.sym||[];HOV=args.hov||[];CLAB=args.clab||[];CCOL=args.ccol||[];SLAB=args.slab||[];SSYM=args.ssym||[];OFF=args.off||0;BAND=args.band||null;TITLE=args.title||\"\";var seed=args.seed;var reseed=(seed!==lastSeed)||!wired;if(reseed){MX=(args.mx||[]).slice();lastSeed=seed;dirty=0;}if(!applyWired){var ab=document.getElementById(\"apply\");if(ab){ab.addEventListener(\"click\",onApply);applyWired=true;}}draw(reseed);setStatus();}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
 _OCP_VER = hashlib.md5(_OCP_HTML.encode("utf-8")).hexdigest()[:8]
 
 
@@ -981,17 +981,20 @@ def _ocp_template_data(df):
                 continue
             raw = str(cell).strip()
             num = pd.to_numeric(raw, errors="coerce")
-            vol = (f"{num:g} mL" if pd.notna(num) else raw)
+            vol = (f"{num:g} µL" if pd.notna(num) else raw)
             additions.append({"conc": c, "vol": vol})
     return tmin, volt, additions, None
 
 
 def _ocp_fig(tmin, volt, additions, conc_color, vol_symbol, title="",
-             band=None, offset=0.0):
+             band=None, offset=0.0, bounds=None):
     fig = go.Figure()
     if band:
         fig.add_hrect(y0=min(band), y1=max(band), line_width=0,
                       fillcolor="rgba(240,215,55,0.30)", layer="below")
+    for bx in (bounds or []):
+        fig.add_vline(x=float(bx), line_width=1, line_dash="dot",
+                      line_color="rgba(150,150,160,0.6)")
     fig.add_trace(go.Scatter(x=tmin, y=volt, mode="lines",
                              line=dict(width=1.6, color="#2E5A6B"),
                              showlegend=False,
@@ -1066,54 +1069,137 @@ def _ocp_png(tmin, volt, additions, conc_color, vol_symbol, title="",
                          bbox_to_anchor=(1.01, 1.0), fontsize=8,
                          title_fontsize=9)
         ax.add_artist(leg1)
-        ax.legend(handles=vh, title="Volume", loc="lower left",
-                  bbox_to_anchor=(1.01, 0.0), fontsize=8, title_fontsize=9)
+        leg2 = ax.legend(handles=vh, title="Volume", loc="lower left",
+                         bbox_to_anchor=(1.01, 0.0), fontsize=8,
+                         title_fontsize=9)
         buf = io.BytesIO()
+        # bbox_extra_artists makes the tight bbox include BOTH legends that
+        # sit outside the axes, so neither gets clipped in the download.
         fig.savefig(buf, format="png", dpi=160, bbox_inches="tight",
-                    facecolor="white")
+                    facecolor="white", pad_inches=0.18,
+                    bbox_extra_artists=(leg1, leg2))
         _plt.close(fig)
     return buf.getvalue()
 
 
-def ocp_analysis(f):
-    """Open-circuit potential: a raw run becomes a fill-in template; a filled
-    template becomes an annotated potential-vs-time graph."""
-    text = _read_text(f)
-    is_raw = ("[begin data]" in text.lower()
-              or "open circuit potential" in text.lower())
-    stem = os.path.splitext(f.name)[0]
-
-    if is_raw:
-        t_s, volt = _parse_ocp_raw(text)
-        if t_s.size < 2:
-            st.error("Couldn't read Time / Voltage rows from this file.")
-            return
-        st.caption("Raw open-circuit-potential run loaded. Below is your **fill-in "
-                   "template** — rename each `Conc_n` header to a NaBH₄ "
-                   "concentration (delete the extra ones you don't need), "
-                   "enter the volume (mL) in the row at the minute "
-                   "you added it, save as CSV, and re-upload here for the "
-                   "annotated graph.")
-        st.plotly_chart(_ocp_fig(t_s / 60.0, volt, [], {}, {}, title=stem),
-                        use_container_width=True, theme="streamlit")
-        tmpl = pd.DataFrame({"Time (s)": np.round(t_s, 3),
-                             "Time (min)": np.round(t_s / 60.0, 4),
-                             "Voltage (V)": volt})
-        for k in range(1, 16):
-            tmpl[f"Conc_{k}"] = ""
-        st.dataframe(tmpl.head(12), use_container_width=True)
-        st.download_button(
-            "⬇️ Fill-in template (CSV)",
-            data=tmpl.to_csv(index=False).encode("utf-8"),
-            file_name=f"{stem}_OCP_template.csv", mime="text/csv",
-            key="dl_ocp_tmpl")
-        return
-
+def _vol_num(v):
+    """Leading numeric value of a volume label like '10 µL' -- used to sort
+    volumes low->high. Tolerates thousands-separators and scientific
+    notation (e.g. '1,000', '1e+03'); non-numeric labels sort last."""
+    s = str(v).strip().replace(",", "")
+    token = s.split()[0] if s.split() else s
     try:
-        df = pd.read_csv(io.StringIO(text))
-    except Exception as e:                              # noqa: BLE001
-        st.error(f"Couldn't read this as a template CSV: {e}")
-        return
+        return float(token)
+    except ValueError:
+        pass
+    num = ""
+    for ch in token:
+        if ch.isdigit() or ch in ".+-eE":
+            num += ch
+        else:
+            break
+    try:
+        return float(num)
+    except ValueError:
+        return float("inf")
+
+
+def _ocp_stitch(files):
+    """Read several raw OCP runs, let the user order them, and join them into
+    one continuous series (each run starts just after the previous one ends).
+    Returns (t_s, volt, bounds_min, stem) or (None, None, None, None)."""
+    parsed = []
+    for f in files:
+        txt = _read_text(f)
+        if not ("[begin data]" in txt.lower()
+                or "open circuit potential" in txt.lower()):
+            st.error(f"**{f.name}** doesn't look like a raw OCP run. Uploading "
+                     "several files stitches raw runs together — upload raw "
+                     ".txt runs, or a single filled template for the graph.")
+            return None, None, None, None
+        t_s, v = _parse_ocp_raw(txt)
+        if t_s.size < 2:
+            st.error(f"Couldn't read Time / Voltage rows from **{f.name}**.")
+            return None, None, None, None
+        parsed.append((f.name, t_s, v))
+
+    st.markdown(f"**{len(files)} raw runs uploaded — set the order.** They're "
+                "joined end-to-end so each run's minute 0 lands right after the "
+                "previous run's last minute. Edit the **Order** column (1 = "
+                "first in time), then scroll down for the stitched template.")
+    order_df = pd.DataFrame({
+        "Order": list(range(1, len(parsed) + 1)),
+        "File": [p[0] for p in parsed],
+        "Points": [int(p[1].size) for p in parsed],
+        "Length (min)": [round(float(p[1][-1] - p[1][0]) / 60.0, 2)
+                         for p in parsed]})
+    # Key the editor by the uploaded file set so a *different* upload starts
+    # fresh instead of inheriting the previous run's stale Order edits.
+    okey = "ocp_order_" + hashlib.md5(
+        "|".join(sorted(p[0] for p in parsed)).encode("utf-8")).hexdigest()[:8]
+    edited = st.data_editor(
+        order_df, hide_index=True, use_container_width=True, key=okey,
+        disabled=["File", "Points", "Length (min)"],
+        column_config={"Order": st.column_config.NumberColumn(
+            "Order", min_value=1, max_value=len(parsed), step=1,
+            help="1 = first run in time, 2 = next, and so on.")})
+    orders = pd.to_numeric(edited["Order"], errors="coerce").fillna(0).tolist()
+    seq = sorted(range(len(parsed)), key=lambda i: (orders[i], i))
+
+    all_t, all_v, bounds = [], [], []
+    run_end, step = 0.0, 0.0
+    for k, idx in enumerate(seq):
+        _, t_s, v = parsed[idx]
+        t0 = t_s - float(t_s[0])                       # zero-base this run
+        d = np.diff(t_s)
+        this_step = float(np.median(d)) if d.size else 1.0
+        if k == 0:
+            offset = 0.0
+        else:
+            offset = run_end + (step or this_step)
+            bounds.append(offset / 60.0)
+        tt = t0 + offset
+        all_t.append(tt)
+        all_v.append(np.asarray(v, float))
+        run_end = float(tt[-1])
+        step = this_step
+    t_all = np.concatenate(all_t)
+    v_all = np.concatenate(all_v)
+    first = os.path.splitext(parsed[seq[0]][0])[0]
+    stem = f"{first}_+{len(parsed) - 1}stitched"
+    if bounds:
+        st.caption("Runs join at (min): "
+                   + ", ".join(f"{b:.2f}" for b in bounds)
+                   + f"  ·  total {run_end / 60.0:.2f} min")
+    return t_all, v_all, bounds, stem
+
+
+def _ocp_raw_to_template(t_s, volt, stem, bounds=None):
+    """Raw run -> curve preview + fill-in template CSV."""
+    st.caption("Raw open-circuit-potential run loaded. Below is your **fill-in "
+               "template** — rename each `Conc_n` header to a NaBH₄ "
+               "concentration (delete the extra ones you don't need), enter the "
+               "volume (µL) in any cell of that column (the row is just a "
+               "placeholder — you'll drag it to the real minute later), save as "
+               "CSV, and re-upload here for the annotated graph.")
+    st.plotly_chart(
+        _ocp_fig(t_s / 60.0, volt, [], {}, {}, title=stem, bounds=bounds),
+        use_container_width=True, theme="streamlit")
+    tmpl = pd.DataFrame({"Time (s)": np.round(t_s, 3),
+                         "Time (min)": np.round(t_s / 60.0, 4),
+                         "Voltage (V)": volt})
+    for k in range(1, 16):
+        tmpl[f"Conc_{k}"] = ""
+    st.dataframe(tmpl.head(12), use_container_width=True)
+    st.download_button(
+        "⬇️ Fill-in template (CSV)",
+        data=tmpl.to_csv(index=False).encode("utf-8"),
+        file_name=f"{stem}_OCP_template.csv", mime="text/csv",
+        key="dl_ocp_tmpl")
+
+
+def _ocp_filled(df, stem):
+    """Filled template -> annotated drag-to-position potential-vs-time graph."""
     tmin, volt, additions, err = _ocp_template_data(df)
     if err:
         st.error(f"Template problem: {err}.")
@@ -1121,15 +1207,16 @@ def ocp_analysis(f):
 
     title = st.text_input("Graph title", value=stem, key="ocp_title")
     if not additions:
-        st.info("No additions marked yet — put the volume (mL) in a concentration "
-                "column at the row of each addition, then re-upload. Showing the "
+        st.info("No additions marked yet — put the volume (µL) in a "
+                "concentration column (any row), then re-upload. Showing the "
                 "raw curve for now.")
         st.plotly_chart(_ocp_fig(tmin, volt, [], {}, {}, title=title),
                         use_container_width=True, theme="streamlit")
         return
 
     concs = list(dict.fromkeys(a["conc"] for a in additions))
-    vols = sorted(dict.fromkeys(a["vol"] for a in additions))
+    vols = sorted(dict.fromkeys(a["vol"] for a in additions),
+                  key=lambda v: (_vol_num(v), str(v)))
     palette = _distinct_colors(len(concs))
     conc_color = {c: palette[i] for i, c in enumerate(concs)}
 
@@ -1154,11 +1241,13 @@ def ocp_analysis(f):
     off = (lift / 100.0) * (vmax - vmin)
 
     st.caption("**Drag each marker left/right to the minute the addition was "
-               "actually made.** They start evenly spread in the order you "
-               "entered them and ride at a fixed height above the curve; the "
-               "table and download update as you move them.")
+               "actually made** — move as many as you like, then click "
+               "**✓ Apply moves** (top-left of the chart) to save them; the "
+               "table and download update then. They start evenly spread in the "
+               "order you entered them and ride at a fixed height above the "
+               "curve. Use the chart toolbar (or drag a box over empty space) to "
+               "**zoom into a busy stretch**, then double-click to zoom out.")
 
-    # curve sorted by time for stable interpolation of the dragged minute
     order = np.argsort(tmin)
     tx, vx = tmin[order], volt[order]
     tlo, thi = float(tx[0]), float(tx[-1])
@@ -1193,8 +1282,6 @@ def ocp_analysis(f):
             st.session_state["_ocp_mx"] = [float(x) for x in xs]
             mx = [float(x) for x in xs]
 
-    # real additions: minute = where the marker was dragged, voltage read off
-    # the curve there (so it matches the symbol's height minus the lift)
     real = [{"t": mx[i], "v": float(np.interp(mx[i], tx, vx)),
              "conc": a["conc"], "vol": a["vol"]}
             for i, a in enumerate(additions)]
@@ -1218,6 +1305,44 @@ def ocp_analysis(f):
                        f"{stem}_OCP_additions.csv", "text/csv", key="dl_ocp_ev")
 
 
+def ocp_analysis(files):
+    """Open-circuit potential. One raw run -> a fill-in template; several raw
+    runs -> stitched end-to-end into one template; a filled template -> the
+    annotated drag-to-position graph."""
+    if not isinstance(files, list):
+        files = [files]
+    files = [f for f in files if f is not None]
+    if not files:
+        return
+
+    if len(files) > 1:
+        t_s, volt, bounds, stem = _ocp_stitch(files)
+        if t_s is None:
+            return
+        _ocp_raw_to_template(t_s, volt, stem, bounds=bounds)
+        return
+
+    f = files[0]
+    text = _read_text(f)
+    stem = os.path.splitext(f.name)[0]
+    is_raw = ("[begin data]" in text.lower()
+              or "open circuit potential" in text.lower())
+    if is_raw:
+        t_s, volt = _parse_ocp_raw(text)
+        if t_s.size < 2:
+            st.error("Couldn't read Time / Voltage rows from this file.")
+            return
+        _ocp_raw_to_template(t_s, volt, stem)
+        return
+
+    try:
+        df = pd.read_csv(io.StringIO(text))
+    except Exception as e:                              # noqa: BLE001
+        st.error(f"Couldn't read this as a template CSV: {e}")
+        return
+    _ocp_filled(df, stem)
+
+
 # --------------------------------------------------------------------------- #
 #  Sidebar controls
 # --------------------------------------------------------------------------- #
@@ -1233,10 +1358,11 @@ def sidebar_controls():
     up = files = raw_type = None
     if source == "Potential vs time (OCP)":
         up = sb.file_uploader(
-            "OCP file — raw .txt, or your filled-in template .csv",
-            type=["txt", "csv"])
-        sb.caption("Upload the raw run to get a fill-in template; upload the "
-                   "filled template to get the annotated graph.")
+            "OCP file(s) — raw .txt run(s), or your filled-in template .csv",
+            type=["txt", "csv"], accept_multiple_files=True)
+        sb.caption("One raw run → a fill-in template. Several raw runs "
+                   "→ order them and they're stitched end-to-end into "
+                   "one template. A filled template → the annotated graph.")
         return up, files, raw_type, source, "OCP", None
     if source == "Kinetics trend (OceanView)":
         files = sb.file_uploader(
@@ -1412,12 +1538,14 @@ def main():
     up, files, raw_type, source, analysis, params = sidebar_controls()
 
     if source == "Potential vs time (OCP)":
-        if up is None:
-            st.info("⬅️ Upload your open-circuit-potential file in the "
-                    "sidebar — the raw run (.txt) for a template, or your "
-                    "filled-in template (.csv) for the annotated graph.")
+        ocp_files = up if isinstance(up, list) else ([up] if up else [])
+        if not ocp_files:
+            st.info("⬅️ Upload your open-circuit-potential file(s) in the "
+                    "sidebar — one raw run (.txt) for a template, several "
+                    "raw runs to stitch, or your filled-in template (.csv) "
+                    "for the annotated graph.")
             return
-        ocp_analysis(up)
+        ocp_analysis(ocp_files)
         return
 
     if source == "Kinetics trend (OceanView)":
