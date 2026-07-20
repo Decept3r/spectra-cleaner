@@ -1198,19 +1198,139 @@ def _ocp_raw_to_template(t_s, volt, stem, bounds=None):
         key="dl_ocp_tmpl")
 
 
+def _ocp_stem(stem):
+    """Strip our own OCP filename suffixes so re-exports don't stack them."""
+    s = str(stem)
+    for suf in ("_OCP_project", "_OCP_annotated", "_OCP_template",
+                "_OCP_additions"):
+        if s.endswith(suf):
+            return s[:-len(suf)]
+    return s
+
+
+def _ocp_project_csv(tmin, volt, real, conc_color, vol_symbol, title, lift, band):
+    """Encode the whole annotated graph (curve + markers + settings) as one CSV
+    that _ocp_load_project() can read back for zooming / further editing."""
+    tmin = np.asarray(tmin, float)
+    volt = np.asarray(volt, float)
+    skeys = ["nanomeli_ocp_version", "title", "lift_pct", "band_on"]
+    svals = ["1", str(title), str(int(lift)), "1" if band else "0"]
+    if band:
+        skeys += ["band_lo", "band_hi"]
+        svals += ["%.6g" % float(band[0]), "%.6g" % float(band[1])]
+    M = max(len(tmin), len(real), len(skeys), 1)
+
+    def padf(arr):
+        a = list(arr)
+        return a + [np.nan] * (M - len(a))
+
+    def pads(vals):
+        v = list(vals)
+        return v + [""] * (M - len(v))
+
+    data = {
+        "Time (s)": padf(np.round(tmin * 60.0, 3)),
+        "Time (min)": padf(np.round(tmin, 5)),
+        "Voltage (V)": padf(volt),
+        "marker_min": pads([round(a["t"], 4) for a in real]),
+        "marker_concentration": pads([a["conc"] for a in real]),
+        "marker_volume": pads([a["vol"] for a in real]),
+        "marker_symbol": pads([vol_symbol[a["vol"]] for a in real]),
+        "marker_color": pads([conc_color[a["conc"]] for a in real]),
+        "setting_key": pads(skeys),
+        "setting_value": pads(svals),
+    }
+    return pd.DataFrame(data).to_csv(index=False).encode("utf-8")
+
+
+def _ocp_load_project(df):
+    """Parse a re-uploaded annotated-project CSV back into
+    (tmin, volt, additions, preset, err). Markers keep their saved order."""
+    df = df.copy()
+    df.columns = [str(c).strip() for c in df.columns]
+    cols = list(df.columns)
+    vcol = _pick_col(cols, ["voltage", "potential", "(v)"])
+    mcol = _pick_col(cols, ["time (min)", "min"])
+    scol = _pick_col(cols, ["time (s)", "(s)", "second"])
+    if vcol is None:
+        return None, None, None, None, "no voltage / potential column"
+    volt = pd.to_numeric(df[vcol], errors="coerce").to_numpy(float)
+    if mcol is not None:
+        tmin = pd.to_numeric(df[mcol], errors="coerce").to_numpy(float)
+    elif scol is not None:
+        tmin = pd.to_numeric(df[scol], errors="coerce").to_numpy(float) / 60.0
+    else:
+        return None, None, None, None, "no time column"
+    good = np.isfinite(tmin) & np.isfinite(volt)
+    tmin, volt = tmin[good], volt[good]
+    if tmin.size < 2:
+        return None, None, None, None, "no curve rows"
+
+    mm = pd.to_numeric(df.get("marker_min"), errors="coerce")
+    additions, mins, syms = [], [], {}
+    for r in range(len(df)):
+        if r >= mm.size or pd.isna(mm.iloc[r]):
+            continue
+        conc = (str(df["marker_concentration"].iloc[r]).strip()
+                if "marker_concentration" in cols else "")
+        vol = (str(df["marker_volume"].iloc[r]).strip()
+               if "marker_volume" in cols else "")
+        additions.append({"conc": conc, "vol": vol})
+        mins.append(float(mm.iloc[r]))
+        if "marker_symbol" in cols:
+            sym = str(df["marker_symbol"].iloc[r]).strip()
+            if vol and sym and sym.lower() != "nan":
+                syms[vol] = sym
+
+    settings = {}
+    if "setting_key" in cols:
+        sv = df["setting_value"] if "setting_value" in cols else None
+        for r in range(len(df)):
+            k = str(df["setting_key"].iloc[r]).strip()
+            if not k or k.lower() == "nan":
+                continue
+            settings[k] = "" if sv is None else str(sv.iloc[r]).strip()
+
+    title = settings.get("title", "").strip()
+    try:
+        lift = int(round(float(settings.get("lift_pct", 4))))
+    except (TypeError, ValueError):
+        lift = 4
+    lift = max(0, min(15, lift))
+    band = None
+    if str(settings.get("band_on", "0")).strip().lower() in ("1", "true", "yes"):
+        try:
+            band = (float(settings["band_lo"]), float(settings["band_hi"]))
+        except (KeyError, TypeError, ValueError):
+            band = None
+    preset = {"mins": mins, "syms": syms, "title": title,
+              "lift": lift, "band": band}
+    return tmin, volt, additions, preset, None
+
+
 def _ocp_filled(df, stem):
     """Filled template -> annotated drag-to-position potential-vs-time graph."""
     tmin, volt, additions, err = _ocp_template_data(df)
     if err:
         st.error(f"Template problem: {err}.")
         return
+    _ocp_render(tmin, volt, additions, stem)
 
-    title = st.text_input("Graph title", value=stem, key="ocp_title")
+
+def _ocp_render(tmin, volt, additions, stem, preset=None):
+    """Draw the annotated drag-to-position graph. When `preset` is given (a
+    reloaded project) its marker minutes, symbols, title, lift and band are
+    injected once, so the graph re-opens exactly as it was saved."""
+    tmin = np.asarray(tmin, float)
+    volt = np.asarray(volt, float)
+    st.session_state.setdefault("ocp_title", stem)
+
     if not additions:
+        title0 = st.text_input("Graph title", key="ocp_title")
         st.info("No additions marked yet — put the volume (µL) in a "
                 "concentration column (any row), then re-upload. Showing the "
                 "raw curve for now.")
-        st.plotly_chart(_ocp_fig(tmin, volt, [], {}, {}, title=title),
+        st.plotly_chart(_ocp_fig(tmin, volt, [], {}, {}, title=title0),
                         use_container_width=True, theme="streamlit")
         return
 
@@ -1220,21 +1340,61 @@ def _ocp_filled(df, stem):
     palette = _distinct_colors(len(concs))
     conc_color = {c: palette[i] for i, c in enumerate(concs)}
 
+    order = np.argsort(tmin)
+    tx, vx = tmin[order], volt[order]
+    tlo, thi = float(tx[0]), float(tx[-1])
+    tspan = (thi - tlo) or 1.0
+    n = len(additions)
+    sig = (tuple((a["conc"], a["vol"]) for a in additions),
+           round(tlo, 4), round(thi, 4))
+
+    # Re-inject a freshly loaded project's saved state exactly once.
+    fresh = False
+    if preset is not None:
+        psig = (sig, tuple(round(float(m), 4) for m in preset["mins"]),
+                tuple(sorted(preset["syms"].items())), preset["title"],
+                int(preset["lift"]),
+                None if not preset["band"]
+                else (round(preset["band"][0], 6), round(preset["band"][1], 6)))
+        if st.session_state.get("_ocp_psig") != psig:
+            fresh = True
+            st.session_state["_ocp_psig"] = psig
+
+    if fresh:
+        st.session_state["ocp_title"] = preset["title"] or stem
+    title = st.text_input("Graph title", key="ocp_title")
+
     st.markdown("**Symbol for each volume** (colour is auto-assigned per concentration)")
     scols = st.columns(min(len(vols), 4))
     vol_symbol = {}
     for i, vol in enumerate(vols):
+        dk = f"ocpsym_{i}"
+        st.session_state.setdefault(dk, OCP_SYMBOLS[i % len(OCP_SYMBOLS)])
+        if fresh and preset["syms"].get(vol) in OCP_SYMBOLS:
+            st.session_state[dk] = preset["syms"][vol]
         vol_symbol[vol] = scols[i % len(scols)].selectbox(
-            str(vol), OCP_SYMBOLS, index=i % len(OCP_SYMBOLS), key=f"ocpsym_{i}")
+            str(vol), OCP_SYMBOLS, key=dk)
+
+    vmin, vmax = float(np.nanmin(volt)), float(np.nanmax(volt))
+    st.session_state.setdefault("ocp_band_on", False)
+    st.session_state.setdefault("ocp_band_lo", round(vmin, 3))
+    st.session_state.setdefault("ocp_band_hi", round(vmax, 3))
+    st.session_state.setdefault("ocp_lift", 4)
+    if fresh:
+        st.session_state["ocp_lift"] = int(preset["lift"])
+        st.session_state["ocp_band_on"] = bool(preset["band"])
+        if preset["band"]:
+            st.session_state["ocp_band_lo"] = float(preset["band"][0])
+            st.session_state["ocp_band_hi"] = float(preset["band"][1])
 
     b1, b2, b3 = st.columns([1.1, 1, 1])
-    hl = b1.checkbox("Highlight a potential band", value=False)
-    vmin, vmax = float(np.nanmin(volt)), float(np.nanmax(volt))
-    ylo = b2.number_input("From (V)", value=round(vmin, 3), step=0.01,
-                          format="%.3f", disabled=not hl)
-    yhi = b3.number_input("To (V)", value=round(vmax, 3), step=0.01,
-                          format="%.3f", disabled=not hl)
-    lift = st.slider("Lift markers above the curve (% of span)", 0, 15, 4, 1,
+    hl = b1.checkbox("Highlight a potential band", key="ocp_band_on")
+    ylo = b2.number_input("From (V)", step=0.01, format="%.3f",
+                          disabled=not hl, key="ocp_band_lo")
+    yhi = b3.number_input("To (V)", step=0.01, format="%.3f",
+                          disabled=not hl, key="ocp_band_hi")
+    lift = st.slider("Lift markers above the curve (% of span)", 0, 15,
+                     key="ocp_lift",
                      help="Floats each symbol above the curve so the line stays "
                           "visible underneath; the marker keeps this height as "
                           "you drag it.")
@@ -1243,25 +1403,24 @@ def _ocp_filled(df, stem):
     st.caption("**Drag each marker left/right to the minute the addition was "
                "actually made** — move as many as you like, then click "
                "**✓ Apply moves** (top-left of the chart) to save them; the "
-               "table and download update then. They start evenly spread in the "
-               "order you entered them and ride at a fixed height above the "
-               "curve. Use the chart toolbar (or drag a box over empty space) to "
-               "**zoom into any region — horizontally in time and vertically in "
-               "potential**, then double-click to zoom back out.")
+               "table and downloads update then. Use the chart toolbar (or drag "
+               "a box over empty space) to **zoom into any region — horizontally "
+               "in time and vertically in potential**, then double-click to zoom "
+               "back out.")
 
-    order = np.argsort(tmin)
-    tx, vx = tmin[order], volt[order]
-    tlo, thi = float(tx[0]), float(tx[-1])
-    tspan = (thi - tlo) or 1.0
-    n = len(additions)
-    sig = (tuple((a["conc"], a["vol"]) for a in additions),
-           round(tlo, 4), round(thi, 4))
+    if fresh:
+        st.session_state["_ocp_mx"] = [float(m) for m in preset["mins"]]
+        st.session_state["_ocp_sig"] = sig
+        st.session_state["_ocp_seed"] = st.session_state.get("_ocp_seed", 0) + 1
     if st.session_state.get("_ocp_sig") != sig:
         st.session_state["_ocp_sig"] = sig
         st.session_state["_ocp_mx"] = [tlo + tspan * (i + 0.5) / n
                                        for i in range(n)]
         st.session_state["_ocp_seed"] = st.session_state.get("_ocp_seed", 0) + 1
     mx = [float(v) for v in st.session_state["_ocp_mx"]]
+    if len(mx) != n:
+        mx = [tlo + tspan * (i + 0.5) / n for i in range(n)]
+        st.session_state["_ocp_mx"] = mx
 
     comp = _ocp_component(_OCP_VER)
     ret = comp(
@@ -1288,12 +1447,21 @@ def _ocp_filled(df, stem):
             for i, a in enumerate(additions)]
     real_sorted = sorted(real, key=lambda a: a["t"])
 
-    st.download_button(
+    d1, d2 = st.columns(2)
+    d1.download_button(
         "⬇️ Annotated figure (PNG)",
         data=_ocp_png(tmin, volt, real, conc_color, vol_symbol,
                       title=title, band=(ylo, yhi) if hl else None, offset=off),
-        file_name=f"{stem}_OCP_annotated.png", mime="image/png",
-        key="dl_ocp_png")
+        file_name=f"{_ocp_stem(stem)}_OCP_annotated.png", mime="image/png",
+        key="dl_ocp_png", use_container_width=True)
+    d2.download_button(
+        "⬇️ Editable project (CSV)",
+        data=_ocp_project_csv(tmin, volt, real, conc_color, vol_symbol,
+                              title, lift, (ylo, yhi) if hl else None),
+        file_name=f"{_ocp_stem(stem)}_OCP_project.csv", mime="text/csv",
+        key="dl_ocp_proj", use_container_width=True,
+        help="Re-upload this file any time to zoom around or keep editing this "
+             "exact annotated graph.")
 
     ev = pd.DataFrame([{"Time (min)": round(a["t"], 2),
                         "Potential (V)": round(a["v"], 4),
@@ -1303,7 +1471,8 @@ def _ocp_filled(df, stem):
     st.dataframe(ev, use_container_width=True, hide_index=True)
     st.download_button("⬇️ Additions (CSV)",
                        ev.to_csv(index=False).encode("utf-8"),
-                       f"{stem}_OCP_additions.csv", "text/csv", key="dl_ocp_ev")
+                       f"{_ocp_stem(stem)}_OCP_additions.csv", "text/csv",
+                       key="dl_ocp_ev")
 
 
 def ocp_analysis(files):
@@ -1341,6 +1510,16 @@ def ocp_analysis(files):
     except Exception as e:                              # noqa: BLE001
         st.error(f"Couldn't read this as a template CSV: {e}")
         return
+    dcols = [str(c).strip() for c in df.columns]
+    if "marker_min" in dcols and "setting_key" in dcols:
+        tmin, volt, additions, preset, err = _ocp_load_project(df)
+        if err:
+            st.error(f"Couldn't reload this annotated project: {err}.")
+            return
+        st.success("Annotated project reloaded — zoom, drag, restyle, or "
+                   "re-export it below.")
+        _ocp_render(tmin, volt, additions, _ocp_stem(stem), preset=preset)
+        return
     _ocp_filled(df, stem)
 
 
@@ -1363,7 +1542,9 @@ def sidebar_controls():
             type=["txt", "csv"], accept_multiple_files=True)
         sb.caption("One raw run → a fill-in template. Several raw runs "
                    "→ order them and they're stitched end-to-end into "
-                   "one template. A filled template → the annotated graph.")
+                   "one template. A filled template → the annotated graph. "
+                   "A saved **project** CSV → re-opens that graph to zoom "
+                   "or keep editing.")
         return up, files, raw_type, source, "OCP", None
     if source == "Kinetics trend (OceanView)":
         files = sb.file_uploader(
