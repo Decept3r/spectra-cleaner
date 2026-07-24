@@ -230,6 +230,32 @@ def _ocp_component(ver):
     return components.declare_component("ocp_editor_" + ver, path=base)
 
 
+_LINK_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>html,body{margin:0;padding:0;height:648px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}#c{width:100%;height:648px}</style>\n</head>\n<body>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});}};\nvar GD=null,OT=[],OV=[],WL=[],SP=[],SPT=[],SN=[],TITLE=\"\",wired=false,curK=-1;\nvar curBg=\"#ffffff\",curFg=\"#262730\",curGrid=\"rgba(0,0,0,0.09)\";\nfunction nearestSpec(t){var best=0,bd=Infinity,i;for(i=0;i<SPT.length;i++){var d=Math.abs(SPT[i]-t);if(d<bd){bd=d;best=i;}}return best;}\nfunction interpO(t){var n=OT.length;if(n===0)return 0;if(t<=OT[0])return OV[0];if(t>=OT[n-1])return OV[n-1];var lo=0,hi=n-1;while(hi-lo>1){var m=(lo+hi)>>1;if(OT[m]<=t){lo=m;}else{hi=m;}}var f=(t-OT[lo])/((OT[hi]-OT[lo])||1);return OV[lo]+f*(OV[hi]-OV[lo]);}\nfunction specTitle(k){if(k<0||k>=SPT.length)return \"UV-Vis spectrum\";return \"UV-Vis @ \"+SPT[k].toFixed(2)+\" min\"+(SN[k]?\"  \u00b7  \"+SN[k]:\"\");}\nfunction draw(){\n  var ocp={x:OT,y:OV,type:\"scatter\",mode:\"lines\",line:{width:1.7,color:\"#2E5A6B\"},xaxis:\"x\",yaxis:\"y\",hovertemplate:\"t = %{x:.2f} min<br>%{y:.3f} V<extra></extra>\"};\n  var rug={x:SPT,y:SPT.map(interpO),type:\"scatter\",mode:\"markers\",marker:{size:9,color:\"rgba(196,35,72,0.55)\",symbol:\"line-ns-open\"},xaxis:\"x\",yaxis:\"y\",hoverinfo:\"skip\"};\n  var cur={x:[SPT.length?SPT[curK]:0],y:[SPT.length?interpO(SPT[curK]):0],type:\"scatter\",mode:\"markers\",marker:{size:13,color:\"#C42348\",line:{width:1.6,color:\"#ffffff\"}},xaxis:\"x\",yaxis:\"y\",hoverinfo:\"skip\"};\n  var spec={x:WL,y:(SP.length?SP[curK]:[]),type:\"scatter\",mode:\"lines\",line:{width:1.7,color:\"#7B2FB0\"},fill:\"tozeroy\",fillcolor:\"rgba(123,47,176,0.09)\",xaxis:\"x2\",yaxis:\"y2\",hovertemplate:\"%{x:.0f} nm<br>%{y:.4f}<extra></extra>\"};\n  var layout={margin:{l:62,r:16,t:30,b:46},height:648,paper_bgcolor:curBg,plot_bgcolor:curBg,font:{color:curFg},showlegend:false,hovermode:\"x\",\n    xaxis:{domain:[0,1],anchor:\"y\",title:{text:\"time (min)\"},gridcolor:curGrid,zeroline:false,color:curFg,showspikes:true,spikemode:\"across\",spikethickness:1.2,spikecolor:\"#C42348\",spikedash:\"solid\",spikesnap:\"cursor\"},\n    yaxis:{domain:[0.575,1.0],anchor:\"x\",title:{text:\"potential (V)\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    xaxis2:{domain:[0,1],anchor:\"y2\",title:{text:\"wavelength (nm)\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    yaxis2:{domain:[0,0.43],anchor:\"x2\",title:{text:\"absorbance\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    annotations:[{text:(TITLE||\"Potential vs time\"),x:0,xref:\"paper\",y:1.0,yref:\"paper\",yanchor:\"bottom\",showarrow:false,font:{size:13.5,color:curFg}},\n                 {text:specTitle(curK),x:0,xref:\"paper\",y:0.445,yref:\"paper\",yanchor:\"bottom\",showarrow:false,font:{size:13.5,color:curFg}}]};\n  var config={displaylogo:false,responsive:true,displayModeBar:true,modeBarButtonsToRemove:[\"select2d\",\"lasso2d\",\"autoScale2d\"]};\n  Plotly.react(\"c\",[ocp,rug,cur,spec],layout,config).then(function(){if(!wired){wire();wired=true;}Streamlit.height(658);});\n}\nfunction updateTo(t){if(!SP.length)return;var k=nearestSpec(t);curK=k;Plotly.restyle(\"c\",{x:[[t]],y:[[interpO(t)]]},[2]);Plotly.restyle(\"c\",{y:[SP[k]]},[3]);Plotly.relayout(\"c\",{\"annotations[1].text\":specTitle(k)});}\nfunction wire(){GD.on(\"plotly_hover\",function(d){if(!d||!d.points||!d.points.length)return;var i,p;for(i=0;i<d.points.length;i++){p=d.points[i];if(p.curveNumber===0&&typeof p.x===\"number\"){updateTo(p.x);return;}}});}\nfunction build(args,theme){if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}GD=document.getElementById(\"c\");args=args||{};var dark=!!(theme&&theme.base===\"dark\");curBg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");curFg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");curGrid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";OT=args.ot||[];OV=args.ov||[];WL=args.wl||[];SP=args.sp||[];SPT=args.spt||[];SN=args.sn||[];TITLE=args.title||\"\";if(curK<0||curK>=SP.length)curK=Math.floor(SP.length/2);draw();}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
+_LINK_VER = hashlib.md5(_LINK_HTML.encode("utf-8")).hexdigest()[:8]
+
+
+@st.cache_resource(show_spinner=False)
+def _link_component(ver):
+    """Materialise the linked OCP + UV-Vis viewer frontend (display-only; the
+    hover interaction is entirely client-side, so nothing is sent back)."""
+    import plotly as _plotly
+    base = os.path.join(tempfile.gettempdir(), "link_view_" + ver)
+    os.makedirs(base, exist_ok=True)
+    js_dst = os.path.join(base, "plotly.min.js")
+    js_src = os.path.join(os.path.dirname(_plotly.__file__),
+                          "package_data", "plotly.min.js")
+    try:
+        if os.path.isfile(js_src) and (
+                not os.path.exists(js_dst)
+                or os.path.getsize(js_dst) != os.path.getsize(js_src)):
+            shutil.copyfile(js_src, js_dst)
+    except OSError:
+        pass
+    with open(os.path.join(base, "index.html"), "w", encoding="utf-8") as fh:
+        fh.write(_LINK_HTML)
+    return components.declare_component("link_view_" + ver, path=base)
+
+
 def _shapes_to_peaks(shapes, x, yref, xmin, xmax):
     """Turn the Plotly rectangle shapes returned by the editor (x0/x1 in cm^-1)
     back into integration windows; recompute each centre and ignore slivers --
@@ -1523,6 +1549,169 @@ def ocp_analysis(files):
     _ocp_filled(df, stem)
 
 
+def _natkey(s):
+    """Natural sort key so file_2 sorts before file_10."""
+    import re as _re
+    return [int(t) if t.isdigit() else t.lower()
+            for t in _re.split(r"(\d+)", str(s))]
+
+
+def _uvvis_timeseries(files):
+    """Uploaded UV-Vis files -> (wavelength, spectra[n_spec x n_wl], names, err).
+    Several .txt/.csv files = one spectrum each (chronological by filename);
+    a single CSV = its columns are the time-series (column 0 = wavelength)."""
+    files = [f for f in files if f is not None]
+    if not files:
+        return None, None, None, "No UV-Vis files uploaded."
+    if len(files) == 1 and files[0].name.lower().endswith(".csv"):
+        try:
+            df = pd.read_csv(files[0])
+        except Exception as e:                          # noqa: BLE001
+            return None, None, None, f"Couldn't read the UV-Vis CSV: {e}"
+        df.columns = [str(c).strip() for c in df.columns]
+        if df.shape[1] < 2:
+            return (None, None, None,
+                    "The UV-Vis CSV needs a wavelength column plus at least one "
+                    "spectrum column.")
+        wl = pd.to_numeric(df.iloc[:, 0], errors="coerce").to_numpy(float)
+        cols = list(df.columns[1:])
+        mat = df[cols].apply(pd.to_numeric, errors="coerce").to_numpy(float)
+        good = np.isfinite(wl)
+        return wl[good], mat[good, :].T, cols, None
+    files = sorted(files, key=lambda f: _natkey(f.name))
+    dfc, msgs = _combine_raw(files, is_sers=False)
+    for lvl, m in msgs:
+        getattr(st, lvl)(m)
+    if dfc is None or dfc.shape[1] < 2:
+        return (None, None, None,
+                "Couldn't read any UV-Vis spectra — each file should be one "
+                "instrument spectrum (.txt with a 'Begin Spectral Data' block).")
+    wl = pd.to_numeric(dfc.iloc[:, 0], errors="coerce").to_numpy(float)
+    cols = list(dfc.columns[1:])
+    mat = dfc[cols].to_numpy(float)
+    good = np.isfinite(wl)
+    return wl[good], mat[good, :].T, cols, None
+
+
+def _downsample_spectra(wl, spectra, maxpts=1100):
+    """Thin the wavelength axis for the live viewer (keeps the JSON small and
+    the hover snappy). Interpolates every spectrum onto a uniform grid."""
+    wl = np.asarray(wl, float)
+    if wl.size <= maxpts:
+        return wl, spectra
+    order = np.argsort(wl)
+    wls = wl[order]
+    sp = spectra[:, order]
+    grid = np.linspace(float(wls[0]), float(wls[-1]), maxpts)
+    out = np.vstack([np.interp(grid, wls, sp[i]) for i in range(sp.shape[0])])
+    return grid, out
+
+
+def linked_ocp_uvvis(ocp_files, uvvis_files):
+    """Stitch the OCP run(s), place the UV-Vis spectra on that same timeline,
+    and show a linked view: hover the potential-vs-time curve to see the
+    spectrum recorded at that moment."""
+    st.caption("**Hover along the potential-vs-time curve to scrub through the "
+               "UV-Vis spectra.** The OCP run(s) are stitched end-to-end and "
+               "each spectrum is placed on that timeline; the bottom panel "
+               "shows the spectrum recorded nearest the time you're hovering. "
+               "The red ticks on the curve mark where spectra were taken.")
+
+    # ---- OCP: one raw run, or several stitched end-to-end ----------------- #
+    if len(ocp_files) > 1:
+        t_s, volt, _bounds, stem = _ocp_stitch(ocp_files)
+        if t_s is None:
+            return
+    else:
+        txt = _read_text(ocp_files[0])
+        if not ("[begin data]" in txt.lower()
+                or "open circuit potential" in txt.lower()):
+            st.error("The OCP file should be the instrument's raw .txt export "
+                     "(with its [Begin Data] section).")
+            return
+        t_s, volt = _parse_ocp_raw(txt)
+        if t_s.size < 2:
+            st.error("Couldn't read Time / Voltage rows from the OCP file.")
+            return
+        stem = _ocp_stem(os.path.splitext(ocp_files[0].name)[0])
+    tmin = np.asarray(t_s, float) / 60.0
+    volt = np.asarray(volt, float)
+    order = np.argsort(tmin)
+    tmin, volt = tmin[order], volt[order]
+    tlo, thi = float(tmin[0]), float(tmin[-1])
+
+    # ---- UV-Vis spectra --------------------------------------------------- #
+    wl, spectra, names, err = _uvvis_timeseries(uvvis_files)
+    if err:
+        st.error(err)
+        return
+    n_spec = int(spectra.shape[0])
+    if n_spec < 1 or wl.size < 2:
+        st.error("No usable UV-Vis spectra found.")
+        return
+    if n_spec == 1:
+        st.info("Only one UV-Vis spectrum was found — the bottom panel will "
+                "show it at every time. Upload the full set of spectra (one "
+                "file per time point) to scrub through them.")
+
+    # ---- place the spectra on the OCP timeline ---------------------------- #
+    st.markdown("**Match the spectra to the OCP timeline**")
+    c1, c2, c3 = st.columns([1.5, 1, 1])
+    timing = c1.radio(
+        "Spectrum timing", ["Evenly across the OCP run", "Fixed interval"],
+        help="Evenly: the first spectrum sits at the start of the run and the "
+             "last at the end. Fixed interval: set the seconds between spectra "
+             "and the time of the first one (use this when you know the "
+             "acquisition rate).")
+    if timing.startswith("Fixed"):
+        default_iv = round((thi - tlo) * 60.0 / max(1, n_spec - 1), 1) \
+            if n_spec > 1 else 30.0
+        start_min = c2.number_input("First spectrum at (min)",
+                                    value=round(tlo, 2), step=0.1, format="%.2f")
+        interval_s = c3.number_input("Interval between spectra (s)",
+                                     min_value=0.1, value=float(default_iv),
+                                     step=1.0)
+        spec_t = start_min + np.arange(n_spec) * (interval_s / 60.0)
+    else:
+        spec_t = (np.linspace(tlo, thi, n_spec) if n_spec > 1
+                  else np.array([(tlo + thi) / 2.0]))
+
+    outside = int(np.count_nonzero((spec_t < tlo - 1e-9) | (spec_t > thi + 1e-9)))
+    if outside:
+        st.warning(f"{outside} spectrum time(s) fall outside the OCP run "
+                   f"({tlo:.2f}–{thi:.2f} min); when hovering they snap to the "
+                   "nearest available spectrum.")
+
+    title = st.text_input("Title", value=stem, key="link_title")
+
+    # thin the wavelength axis for a snappy live view
+    wl_v, spectra_v = _downsample_spectra(wl, spectra, 1100)
+
+    comp = _link_component(_LINK_VER)
+    comp(ot=tmin.astype(float).tolist(), ov=volt.astype(float).tolist(),
+         wl=np.asarray(wl_v, float).tolist(),
+         sp=[np.asarray(r, float).tolist() for r in spectra_v],
+         spt=[float(t) for t in spec_t], sn=[str(n) for n in names],
+         title=title, key="link_view", default=None)
+
+    # ---- time map + downloads -------------------------------------------- #
+    tmap = pd.DataFrame({"Spectrum": names, "Time (min)": np.round(spec_t, 3)})
+    with st.expander("Spectrum → time map"):
+        st.dataframe(tmap, use_container_width=True, hide_index=True)
+    d1, d2 = st.columns(2)
+    ocp_csv = pd.DataFrame({"Time (s)": np.round(tmin * 60.0, 3),
+                            "Time (min)": np.round(tmin, 5),
+                            "Voltage (V)": volt})
+    d1.download_button("⬇️ Stitched OCP (CSV)",
+                       ocp_csv.to_csv(index=False).encode("utf-8"),
+                       f"{stem}_OCP.csv", "text/csv", key="dl_link_ocp",
+                       use_container_width=True)
+    d2.download_button("⬇️ Spectrum time-map (CSV)",
+                       tmap.to_csv(index=False).encode("utf-8"),
+                       f"{stem}_spectrum_times.csv", "text/csv",
+                       key="dl_link_map", use_container_width=True)
+
+
 # --------------------------------------------------------------------------- #
 #  Sidebar controls
 # --------------------------------------------------------------------------- #
@@ -1531,11 +1720,23 @@ def sidebar_controls():
     sb.header("Data")
     source = sb.radio(
         "Input", ["Single file", "Combine raw files", "Kinetics trend (OceanView)",
-                  "Potential vs time (OCP)"],
+                  "Potential vs time (OCP)", "OCP + UV-Vis (linked)"],
         help="“Combine raw files” merges many raw instrument exports of the "
              "same format into one wavelength + many-series dataset, ready for "
              "the analyses below.")
     up = files = raw_type = None
+    if source == "OCP + UV-Vis (linked)":
+        up = sb.file_uploader(
+            "OCP run(s) — raw .txt", type=["txt"],
+            accept_multiple_files=True, key="link_ocp")
+        files = sb.file_uploader(
+            "UV-Vis spectra — .txt (one per time point) or a CSV",
+            type=["txt", "csv"], accept_multiple_files=True, key="link_uv")
+        sb.caption("Upload the OCP run(s) and the UV-Vis spectra taken "
+                   "during the same experiment. The runs are stitched and "
+                   "the spectra are dropped onto that timeline — hover the "
+                   "curve to scrub the spectrum at each moment.")
+        return up, files, raw_type, source, "Linked", None
     if source == "Potential vs time (OCP)":
         up = sb.file_uploader(
             "OCP file(s) — raw .txt run(s), or your filled-in template .csv",
@@ -1718,6 +1919,17 @@ def main():
     theme.render_header()
 
     up, files, raw_type, source, analysis, params = sidebar_controls()
+
+    if source == "OCP + UV-Vis (linked)":
+        ocp_files = up or []
+        uv_files = files or []
+        if not ocp_files or not uv_files:
+            st.info("⬅️ Upload BOTH an OCP run (.txt) and the UV-Vis "
+                    "spectra (.txt files, one per time point, or a CSV) in "
+                    "the sidebar to link them on one timeline.")
+            return
+        linked_ocp_uvvis(ocp_files, uv_files)
+        return
 
     if source == "Potential vs time (OCP)":
         ocp_files = up if isinstance(up, list) else ([up] if up else [])
