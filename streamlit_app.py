@@ -1577,8 +1577,29 @@ def _uvvis_timeseries(files):
         cols = list(df.columns[1:])
         mat = df[cols].apply(pd.to_numeric, errors="coerce").to_numpy(float)
         good = np.isfinite(wl)
-        return wl[good], mat[good, :].T, cols, None
+        wl, mat = wl[good], mat[good, :]
+        # Drop empty / all-NaN spectrum columns (e.g. a trailing-delimiter
+        # "Unnamed" column) so they aren't counted as phantom spectra, which
+        # would shift every real spectrum's time on the OCP axis.
+        keep = np.isfinite(mat).any(axis=0) if mat.size else np.zeros(0, bool)
+        mat, cols = mat[:, keep], [c for c, k in zip(cols, keep) if k]
+        if not cols:
+            return None, None, None, "No numeric spectrum columns in the CSV."
+        return wl, mat.T, cols, None
     files = sorted(files, key=lambda f: _natkey(f.name))
+    # Guard the other direction: an OCP run dropped into the UV-Vis uploader
+    # would otherwise parse into a bogus "spectrum" (time on the wavelength
+    # axis) with no warning.
+    for f in files:
+        if f.name.lower().endswith(".txt"):
+            head = _read_text(f)[:4000].lower()
+            if (("[begin data]" in head or "open circuit potential" in head)
+                    and "begin spectral data" not in head):
+                return (None, None, None,
+                        f"**{f.name}** looks like an OCP run, not a UV-Vis "
+                        "spectrum. OCP runs go in the OCP uploader; the UV-Vis "
+                        "uploader takes spectra (.txt with a 'Begin Spectral "
+                        "Data' block, or a CSV).")
     dfc, msgs = _combine_raw(files, is_sers=False)
     for lvl, m in msgs:
         getattr(st, lvl)(m)
@@ -1682,7 +1703,8 @@ def linked_ocp_uvvis(ocp_files, uvvis_files):
                    f"({tlo:.2f}–{thi:.2f} min); when hovering they snap to the "
                    "nearest available spectrum.")
 
-    title = st.text_input("Title", value=stem, key="link_title")
+    tkey = "link_title_" + hashlib.md5(str(stem).encode("utf-8")).hexdigest()[:8]
+    title = st.text_input("Title", value=stem, key=tkey)
 
     # thin the wavelength axis for a snappy live view
     wl_v, spectra_v = _downsample_spectra(wl, spectra, 1100)
