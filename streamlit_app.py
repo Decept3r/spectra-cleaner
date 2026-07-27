@@ -1698,22 +1698,22 @@ def linked_ocp_uvvis(ocp_files, uvvis_files):
     # ---- place the spectra on the OCP timeline ---------------------------- #
     # Real acquisition times are often encoded in the filenames (a trailing
     # HH-MM-SS-mmm clock). When every spectrum carries one, use their true
-    # spacing instead of guessing, and auto-anchor to the OCP start clock.
+    # *spacing*. We deliberately do NOT read a clock out of the OCP file to
+    # auto-align: an OCP export's header timestamp is usually its export time
+    # (after the run), which would push the spectra to negative minutes. The
+    # first spectrum defaults to the run start; the user shifts it if needed.
     uv_clock = [_parse_clock(n) for n in names]
     have_ts = n_spec >= 2 and all(c is not None for c in uv_clock)
-    uv_rel, ocp_clock, default_anchor = None, None, round(tlo, 2)
+    uv_rel = None
     if have_ts:
         tsec = np.array([float(c) for c in uv_clock], float)
         for i in range(1, tsec.size):                  # unwrap across midnight
             while tsec[i] < tsec[i - 1] - 1e-6:
                 tsec[i] += 86400.0
-        uv_rel = (tsec - tsec[0]) / 60.0               # minutes from 1st spectrum
-        ocp_clock = _parse_clock(os.path.splitext(ocp_files[0].name)[0])
-        if ocp_clock is None:
-            ocp_clock = _parse_clock(
-                "\n".join(_read_text(ocp_files[0]).splitlines()[:60]))
-        if ocp_clock is not None:
-            default_anchor = round((tsec[0] - ocp_clock) / 60.0, 2)
+        # measured elapsed minutes from the EARLIEST spectrum (>= 0 even if the
+        # files happen to sort out of chronological order)
+        uv_rel = (tsec - float(tsec.min())) / 60.0
+    default_anchor = round(tlo, 2)
 
     st.markdown("**Match the spectra to the OCP timeline**")
     opts = (["From file timestamps", "Evenly across the OCP run", "Fixed interval"]
@@ -1722,24 +1722,26 @@ def linked_ocp_uvvis(ocp_files, uvvis_files):
     timing = c1.radio(
         "Spectrum timing", opts,
         help="From file timestamps: read each spectrum's real acquisition clock "
-             "from its filename and keep the true spacing. Evenly: first "
-             "spectrum at the run start, last at the end. Fixed interval: the "
-             "seconds between spectra plus the first one's time.")
+             "from its filename and keep the true spacing; the first spectrum "
+             "sits at the run start (shift it below if UV-Vis started earlier "
+             "or later). Evenly: first spectrum at the run start, last at the "
+             "end. Fixed interval: the seconds between spectra plus the first "
+             "one's time.")
     if have_ts:
-        st.caption("⏱️ Found acquisition timestamps in the filenames — spectra "
-                   "keep their **real spacing**"
-                   + (f", auto-aligned to the OCP start clock ({_clock(ocp_clock)})."
-                      if ocp_clock is not None else
-                      "; set where the first one lands below."))
+        span = float(uv_rel[-1]) if uv_rel is not None and uv_rel.size else 0.0
+        st.caption(f"⏱️ Read acquisition timestamps from the filenames — the "
+                   f"spectra keep their **real spacing** (they span "
+                   f"{span:.1f} min). The first is placed at the run start; if "
+                   "the UV-Vis started before/after the OCP run, shift it below.")
 
     if timing == "From file timestamps":
         anchor = c2.number_input(
             "First spectrum at (min)", value=float(default_anchor),
             step=0.1, format="%.2f",
-            help="Where the FIRST spectrum lands on the OCP timeline; the rest "
-                 "keep their measured spacing. Auto-set from the OCP start clock "
-                 "when one is found in the OCP file.")
-        spec_t = anchor + uv_rel
+            help="Where the earliest spectrum sits on the OCP timeline; the "
+                 "rest keep their measured spacing. Default = the run start. "
+                 "Raise it if UV-Vis started later than the run.")
+        spec_t = float(anchor) + uv_rel
     elif timing.startswith("Fixed"):
         default_iv = round((thi - tlo) * 60.0 / max(1, n_spec - 1), 1) \
             if n_spec > 1 else 30.0
