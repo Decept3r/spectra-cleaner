@@ -544,12 +544,14 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
         st.caption("Each trace divided by its own maximum inside the region — "
                    "every peak now reaches 1 so widths and shapes line up.")
     else:
-        breadth = st.select_slider(
-            "Background breadth", ["Broad", "Very broad", "Flattest"],
-            value="Very broad",
-            help="Larger = stiffer, flatter background that leaves the broad "
-                 "peak intact.")
-        lam = {"Broad": 1e6, "Very broad": 1e8, "Flattest": 1e10}[breadth]
+        exp = st.slider(
+            "Background stiffness  ·  λ = 10^(this)", 5.0, 11.0, 8.0, 0.1,
+            help="Drag to tune the arPLS background smoothness λ, live. Lower "
+                 "(toward 10⁵) hugs the spectrum and lifts the baseline up "
+                 "under structure; higher (toward 10¹¹) gives a very flat "
+                 "background that leaves the broad band intact. 8.0 (λ = 1e8) "
+                 "matches the old “Very broad” setting.")
+        lam = 10.0 ** exp
         try:
             Yout, _bkg = fd.apply_baseline(xr, Yr, "arpls", lam=lam)
         except Exception as exc:                    # noqa: BLE001
@@ -557,8 +559,9 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
             return
         ylabel = "background-subtracted absorbance"
         suffix = "uvvis_bgsub"
-        st.caption(f"A very broad arpls background (λ = {lam:g}) subtracted "
-                   "from every trace, leaving the broad peak.")
+        st.caption(f"arPLS background (λ = {lam:.3g}) subtracted from every "
+                   "trace — slide left to remove more structure, right for a "
+                   "flatter background that preserves the broad band.")
 
     st.plotly_chart(_uvvis_figure(xr, Yout, names, ylabel),
                     use_container_width=True, theme="streamlit")
