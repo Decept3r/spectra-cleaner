@@ -1556,6 +1556,23 @@ def _natkey(s):
             for t in _re.split(r"(\d+)", str(s))]
 
 
+def _parse_clock(s):
+    """Find a wall-clock time (HH:MM:SS[.mmm] or HH-MM-SS[-mmm]) inside a string
+    -- e.g. the '17-03-00-131' stamp instruments append to spectrum filenames --
+    and return seconds-since-midnight, or None. The leading/trailing digit
+    guards keep it from matching an index or a DD-MM-YYYY date."""
+    import re as _re
+    best = None
+    for m in _re.finditer(
+            r"(?<!\d)(\d{1,2})[:\-_.](\d{2})[:\-_.](\d{2})(?:[.\-_:](\d{1,3}))?(?!\d)",
+            str(s)):
+        h, mm, ss = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if h < 24 and mm < 60 and ss < 60:
+            frac = int(m.group(4)) / 1000.0 if m.group(4) else 0.0
+            best = h * 3600.0 + mm * 60.0 + ss + frac
+    return best
+
+
 def _uvvis_timeseries(files):
     """Uploaded UV-Vis files -> (wavelength, spectra[n_spec x n_wl], names, err).
     Several .txt/.csv files = one spectrum each (chronological by filename);
@@ -1676,15 +1693,51 @@ def linked_ocp_uvvis(ocp_files, uvvis_files):
                 "file per time point) to scrub through them.")
 
     # ---- place the spectra on the OCP timeline ---------------------------- #
+    # Real acquisition times are often encoded in the filenames (a trailing
+    # HH-MM-SS-mmm clock). When every spectrum carries one, use their true
+    # spacing instead of guessing, and auto-anchor to the OCP start clock.
+    uv_clock = [_parse_clock(n) for n in names]
+    have_ts = n_spec >= 2 and all(c is not None for c in uv_clock)
+    uv_rel, ocp_clock, default_anchor = None, None, round(tlo, 2)
+    if have_ts:
+        tsec = np.array([float(c) for c in uv_clock], float)
+        for i in range(1, tsec.size):                  # unwrap across midnight
+            while tsec[i] < tsec[i - 1] - 1e-6:
+                tsec[i] += 86400.0
+        uv_rel = (tsec - tsec[0]) / 60.0               # minutes from 1st spectrum
+        ocp_clock = _parse_clock(os.path.splitext(ocp_files[0].name)[0])
+        if ocp_clock is None:
+            ocp_clock = _parse_clock(
+                "\n".join(_read_text(ocp_files[0]).splitlines()[:60]))
+        if ocp_clock is not None:
+            default_anchor = round((tsec[0] - ocp_clock) / 60.0, 2)
+
     st.markdown("**Match the spectra to the OCP timeline**")
-    c1, c2, c3 = st.columns([1.5, 1, 1])
+    opts = (["From file timestamps", "Evenly across the OCP run", "Fixed interval"]
+            if have_ts else ["Evenly across the OCP run", "Fixed interval"])
+    c1, c2, c3 = st.columns([1.6, 1, 1])
     timing = c1.radio(
-        "Spectrum timing", ["Evenly across the OCP run", "Fixed interval"],
-        help="Evenly: the first spectrum sits at the start of the run and the "
-             "last at the end. Fixed interval: set the seconds between spectra "
-             "and the time of the first one (use this when you know the "
-             "acquisition rate).")
-    if timing.startswith("Fixed"):
+        "Spectrum timing", opts,
+        help="From file timestamps: read each spectrum's real acquisition clock "
+             "from its filename and keep the true spacing. Evenly: first "
+             "spectrum at the run start, last at the end. Fixed interval: the "
+             "seconds between spectra plus the first one's time.")
+    if have_ts:
+        st.caption("⏱️ Found acquisition timestamps in the filenames — spectra "
+                   "keep their **real spacing**"
+                   + (f", auto-aligned to the OCP start clock ({_clock(ocp_clock)})."
+                      if ocp_clock is not None else
+                      "; set where the first one lands below."))
+
+    if timing == "From file timestamps":
+        anchor = c2.number_input(
+            "First spectrum at (min)", value=float(default_anchor),
+            step=0.1, format="%.2f",
+            help="Where the FIRST spectrum lands on the OCP timeline; the rest "
+                 "keep their measured spacing. Auto-set from the OCP start clock "
+                 "when one is found in the OCP file.")
+        spec_t = anchor + uv_rel
+    elif timing.startswith("Fixed"):
         default_iv = round((thi - tlo) * 60.0 / max(1, n_spec - 1), 1) \
             if n_spec > 1 else 30.0
         start_min = c2.number_input("First spectrum at (min)",
