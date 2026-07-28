@@ -230,7 +230,7 @@ def _ocp_component(ver):
     return components.declare_component("ocp_editor_" + ver, path=base)
 
 
-_LINK_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>html,body{margin:0;padding:0;height:648px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}#c{width:100%;height:648px}</style>\n</head>\n<body>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});}};\nvar GD=null,OT=[],OV=[],WL=[],SP=[],SPT=[],SN=[],TITLE=\"\",wired=false,curK=-1;\nvar curBg=\"#ffffff\",curFg=\"#262730\",curGrid=\"rgba(0,0,0,0.09)\";\nfunction nearestSpec(t){var best=0,bd=Infinity,i;for(i=0;i<SPT.length;i++){var d=Math.abs(SPT[i]-t);if(d<bd){bd=d;best=i;}}return best;}\nfunction interpO(t){var n=OT.length;if(n===0)return 0;if(t<=OT[0])return OV[0];if(t>=OT[n-1])return OV[n-1];var lo=0,hi=n-1;while(hi-lo>1){var m=(lo+hi)>>1;if(OT[m]<=t){lo=m;}else{hi=m;}}var f=(t-OT[lo])/((OT[hi]-OT[lo])||1);return OV[lo]+f*(OV[hi]-OV[lo]);}\nfunction specTitle(k){if(k<0||k>=SPT.length)return \"UV-Vis spectrum\";return \"UV-Vis @ \"+SPT[k].toFixed(2)+\" min\"+(SN[k]?\"  \u00b7  \"+SN[k]:\"\");}\nfunction draw(){\n  var ocp={x:OT,y:OV,type:\"scatter\",mode:\"lines\",line:{width:1.7,color:\"#2E5A6B\"},xaxis:\"x\",yaxis:\"y\",hovertemplate:\"t = %{x:.2f} min<br>%{y:.3f} V<extra></extra>\"};\n  var rug={x:SPT,y:SPT.map(interpO),type:\"scatter\",mode:\"markers\",marker:{size:9,color:\"rgba(196,35,72,0.55)\",symbol:\"line-ns-open\"},xaxis:\"x\",yaxis:\"y\",hoverinfo:\"skip\"};\n  var cur={x:[SPT.length?SPT[curK]:0],y:[SPT.length?interpO(SPT[curK]):0],type:\"scatter\",mode:\"markers\",marker:{size:13,color:\"#C42348\",line:{width:1.6,color:\"#ffffff\"}},xaxis:\"x\",yaxis:\"y\",hoverinfo:\"skip\"};\n  var spec={x:WL,y:(SP.length?SP[curK]:[]),type:\"scatter\",mode:\"lines\",line:{width:1.7,color:\"#7B2FB0\"},fill:\"tozeroy\",fillcolor:\"rgba(123,47,176,0.09)\",xaxis:\"x2\",yaxis:\"y2\",hovertemplate:\"%{x:.0f} nm<br>%{y:.4f}<extra></extra>\"};\n  var layout={margin:{l:62,r:16,t:30,b:46},height:648,paper_bgcolor:curBg,plot_bgcolor:curBg,font:{color:curFg},showlegend:false,hovermode:\"x\",\n    xaxis:{domain:[0,1],anchor:\"y\",title:{text:\"time (min)\"},gridcolor:curGrid,zeroline:false,color:curFg,showspikes:true,spikemode:\"across\",spikethickness:1.2,spikecolor:\"#C42348\",spikedash:\"solid\",spikesnap:\"cursor\"},\n    yaxis:{domain:[0.575,1.0],anchor:\"x\",title:{text:\"potential (V)\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    xaxis2:{domain:[0,1],anchor:\"y2\",title:{text:\"wavelength (nm)\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    yaxis2:{domain:[0,0.43],anchor:\"x2\",title:{text:\"absorbance\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    annotations:[{text:(TITLE||\"Potential vs time\"),x:0,xref:\"paper\",y:1.0,yref:\"paper\",yanchor:\"bottom\",showarrow:false,font:{size:13.5,color:curFg}},\n                 {text:specTitle(curK),x:0,xref:\"paper\",y:0.445,yref:\"paper\",yanchor:\"bottom\",showarrow:false,font:{size:13.5,color:curFg}}]};\n  var config={displaylogo:false,responsive:true,displayModeBar:true,modeBarButtonsToRemove:[\"select2d\",\"lasso2d\",\"autoScale2d\"]};\n  Plotly.react(\"c\",[ocp,rug,cur,spec],layout,config).then(function(){if(!wired){wire();wired=true;}Streamlit.height(658);});\n}\nfunction updateTo(t){if(!SP.length)return;var k=nearestSpec(t);curK=k;Plotly.restyle(\"c\",{x:[[t]],y:[[interpO(t)]]},[2]);Plotly.restyle(\"c\",{y:[SP[k]]},[3]);Plotly.relayout(\"c\",{\"annotations[1].text\":specTitle(k)});}\nfunction wire(){GD.on(\"plotly_hover\",function(d){if(!d||!d.points||!d.points.length)return;var i,p;for(i=0;i<d.points.length;i++){p=d.points[i];if(p.curveNumber===0&&typeof p.x===\"number\"){updateTo(p.x);return;}}});}\nfunction build(args,theme){if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}GD=document.getElementById(\"c\");args=args||{};var dark=!!(theme&&theme.base===\"dark\");curBg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");curFg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");curGrid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";OT=args.ot||[];OV=args.ov||[];WL=args.wl||[];SP=args.sp||[];SPT=args.spt||[];SN=args.sn||[];TITLE=args.title||\"\";if(curK<0||curK>=SP.length)curK=Math.floor(SP.length/2);draw();}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
+_LINK_HTML = "<!doctype html>\n<html>\n<head>\n<meta charset=\"utf-8\"/>\n<script src=\"./plotly.min.js\" onerror=\"(function(){var s=document.createElement('script');s.src='https://cdn.plot.ly/plotly-2.35.2.min.js';document.head.appendChild(s);})()\"></script>\n<style>html,body{margin:0;padding:0;height:648px;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif}#c{width:100%;height:648px}</style>\n</head>\n<body>\n<div id=\"c\"></div>\n<script>\nfunction post(t,e){var m=Object.assign({isStreamlitMessage:true,type:t},e||{});window.parent.postMessage(m,\"*\");}\nvar Streamlit={ready:function(){post(\"streamlit:componentReady\",{apiVersion:1});},height:function(h){post(\"streamlit:setFrameHeight\",{height:h});}};\nvar GD=null,OT=[],OV=[],WL=[],SP=[],SPT=[],SN=[],TITLE=\"\",YL=\"absorbance\",wired=false,curK=-1;\nvar curBg=\"#ffffff\",curFg=\"#262730\",curGrid=\"rgba(0,0,0,0.09)\";\nfunction nearestSpec(t){var best=0,bd=Infinity,i;for(i=0;i<SPT.length;i++){var d=Math.abs(SPT[i]-t);if(d<bd){bd=d;best=i;}}return best;}\nfunction interpO(t){var n=OT.length;if(n===0)return 0;if(t<=OT[0])return OV[0];if(t>=OT[n-1])return OV[n-1];var lo=0,hi=n-1;while(hi-lo>1){var m=(lo+hi)>>1;if(OT[m]<=t){lo=m;}else{hi=m;}}var f=(t-OT[lo])/((OT[hi]-OT[lo])||1);return OV[lo]+f*(OV[hi]-OV[lo]);}\nfunction specTitle(k){if(k<0||k>=SPT.length)return \"UV-Vis spectrum\";return \"UV-Vis @ \"+SPT[k].toFixed(2)+\" min\"+(SN[k]?\"  \u00b7  \"+SN[k]:\"\");}\nfunction draw(){\n  var ocp={x:OT,y:OV,type:\"scatter\",mode:\"lines\",line:{width:1.7,color:\"#2E5A6B\"},xaxis:\"x\",yaxis:\"y\",hovertemplate:\"t = %{x:.2f} min<br>%{y:.3f} V<extra></extra>\"};\n  var rug={x:SPT,y:SPT.map(interpO),type:\"scatter\",mode:\"markers\",marker:{size:9,color:\"rgba(196,35,72,0.55)\",symbol:\"line-ns-open\"},xaxis:\"x\",yaxis:\"y\",hoverinfo:\"skip\"};\n  var cur={x:[SPT.length?SPT[curK]:0],y:[SPT.length?interpO(SPT[curK]):0],type:\"scatter\",mode:\"markers\",marker:{size:13,color:\"#C42348\",line:{width:1.6,color:\"#ffffff\"}},xaxis:\"x\",yaxis:\"y\",hoverinfo:\"skip\"};\n  var spec={x:WL,y:(SP.length?SP[curK]:[]),type:\"scatter\",mode:\"lines\",line:{width:1.7,color:\"#7B2FB0\"},fill:\"tozeroy\",fillcolor:\"rgba(123,47,176,0.09)\",xaxis:\"x2\",yaxis:\"y2\",hovertemplate:\"%{x:.0f} nm<br>%{y:.4f}<extra></extra>\"};\n  var layout={margin:{l:62,r:16,t:30,b:46},height:648,paper_bgcolor:curBg,plot_bgcolor:curBg,font:{color:curFg},showlegend:false,hovermode:\"x\",\n    xaxis:{domain:[0,1],anchor:\"y\",title:{text:\"time (min)\"},gridcolor:curGrid,zeroline:false,color:curFg,showspikes:true,spikemode:\"across\",spikethickness:1.2,spikecolor:\"#C42348\",spikedash:\"solid\",spikesnap:\"cursor\"},\n    yaxis:{domain:[0.575,1.0],anchor:\"x\",title:{text:\"potential (V)\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    xaxis2:{domain:[0,1],anchor:\"y2\",title:{text:\"wavelength (nm)\"},gridcolor:curGrid,zeroline:false,color:curFg},\n    yaxis2:{domain:[0,0.43],anchor:\"x2\",title:{text:YL},gridcolor:curGrid,zeroline:false,color:curFg},\n    annotations:[{text:(TITLE||\"Potential vs time\"),x:0,xref:\"paper\",y:1.0,yref:\"paper\",yanchor:\"bottom\",showarrow:false,font:{size:13.5,color:curFg}},\n                 {text:specTitle(curK),x:0,xref:\"paper\",y:0.445,yref:\"paper\",yanchor:\"bottom\",showarrow:false,font:{size:13.5,color:curFg}}]};\n  var config={displaylogo:false,responsive:true,displayModeBar:true,modeBarButtonsToRemove:[\"select2d\",\"lasso2d\",\"autoScale2d\"]};\n  Plotly.react(\"c\",[ocp,rug,cur,spec],layout,config).then(function(){if(!wired){wire();wired=true;}Streamlit.height(658);});\n}\nfunction updateTo(t){if(!SP.length)return;var k=nearestSpec(t);curK=k;Plotly.restyle(\"c\",{x:[[t]],y:[[interpO(t)]]},[2]);Plotly.restyle(\"c\",{y:[SP[k]]},[3]);Plotly.relayout(\"c\",{\"annotations[1].text\":specTitle(k)});}\nfunction wire(){GD.on(\"plotly_hover\",function(d){if(!d||!d.points||!d.points.length)return;var i,p;for(i=0;i<d.points.length;i++){p=d.points[i];if(p.curveNumber===0&&typeof p.x===\"number\"){updateTo(p.x);return;}}});}\nfunction build(args,theme){if(typeof Plotly===\"undefined\"){setTimeout(function(){build(args,theme);},60);return;}GD=document.getElementById(\"c\");args=args||{};var dark=!!(theme&&theme.base===\"dark\");curBg=(theme&&theme.backgroundColor)||(dark?\"#0e1117\":\"#ffffff\");curFg=(theme&&theme.textColor)||(dark?\"#fafafa\":\"#262730\");curGrid=dark?\"rgba(250,250,250,0.13)\":\"rgba(0,0,0,0.09)\";OT=args.ot||[];OV=args.ov||[];WL=args.wl||[];SP=args.sp||[];SPT=args.spt||[];SN=args.sn||[];TITLE=args.title||\"\";YL=args.yl||\"absorbance\";if(curK<0||curK>=SP.length)curK=Math.floor(SP.length/2);draw();}\nwindow.addEventListener(\"message\",function(e){var d=e.data;if(!d||d.type!==\"streamlit:render\")return;build(d.args,d.theme);});\nStreamlit.ready();\n</script>\n</body>\n</html>\n"
 _LINK_VER = hashlib.md5(_LINK_HTML.encode("utf-8")).hexdigest()[:8]
 
 
@@ -1648,6 +1648,32 @@ def _downsample_spectra(wl, spectra, maxpts=1100):
     return grid, out
 
 
+def _uvvis_process(wl, spectra, op, lam, lo, hi, maxpts=1100):
+    """Focus, thin, and optionally background-subtract or normalize the UV-Vis
+    spectra for the linked viewer -- the same operations as the standalone
+    UV-Vis view. op is 'raw' | 'bg' | 'norm'. arPLS is fit on the thinned grid
+    so dragging the controls stays responsive.
+    Returns (wl_thinned, spectra_out[n_spec x n], y_axis_label)."""
+    wl = np.asarray(wl, float)
+    S = np.asarray(spectra, float)
+    m = (wl >= lo) & (wl <= hi)
+    if int(np.count_nonzero(m)) < 5:               # focus too narrow -> full range
+        m = np.ones(wl.shape, bool)
+    wl_v, S_v = _downsample_spectra(wl[m], S[:, m], maxpts)
+    S_v = np.asarray(S_v, float)
+    if op == "bg":
+        yout, _bkg = fd.apply_baseline(wl_v, S_v.T, "arpls", lam=lam)
+        return wl_v, np.asarray(yout, float).T, "background-subtracted absorbance"
+    if op == "norm":
+        out = np.array(S_v, float)
+        for i in range(out.shape[0]):
+            mx = float(np.nanmax(out[i])) if out.shape[1] else 0.0
+            if mx > 1e-9:
+                out[i] = out[i] / mx
+        return wl_v, out, "normalized absorbance (max = 1)"
+    return wl_v, S_v, "absorbance"
+
+
 def linked_ocp_uvvis(ocp_files, uvvis_files):
     """Stitch the OCP run(s), place the UV-Vis spectra on that same timeline,
     and show a linked view: hover the potential-vs-time curve to see the
@@ -1764,15 +1790,50 @@ def linked_ocp_uvvis(ocp_files, uvvis_files):
     tkey = "link_title_" + hashlib.md5(str(stem).encode("utf-8")).hexdigest()[:8]
     title = st.text_input("Title", value=stem, key=tkey)
 
-    # thin the wavelength axis for a snappy live view
-    wl_v, spectra_v = _downsample_spectra(wl, spectra, 1100)
+    # ---- process the UV-Vis spectra (isolate the band shape) ---------- #
+    st.markdown("**UV-Vis processing** — subtract a broad background or "
+                "normalize to compare peak shapes as you scrub")
+    wmin, wmax = float(np.min(wl)), float(np.max(wl))
+    pc1, pc2 = st.columns([2.0, 1.5])
+    if wmax > wmin:
+        fr = pc1.slider("Focus region (nm)", wmin, wmax, (wmin, wmax),
+                        key="link_focus",
+                        help="Trim the wavelength window shown in the bottom "
+                             "panel to zoom in on the band.")
+        lo, hi = float(fr[0]), float(fr[1])
+    else:
+        lo, hi = wmin, wmax
+    op_label = pc2.radio(
+        "Spectra", ["Raw", "Background subtracted", "Normalized (max = 1)"],
+        key="link_op",
+        help="Background subtracted: fit and remove a broad arPLS baseline "
+             "from each spectrum (same as the UV-Vis view) so you see just "
+             "the band shape. Normalized: divide each spectrum by its own "
+             "maximum.")
+    op = {"Raw": "raw", "Background subtracted": "bg",
+          "Normalized (max = 1)": "norm"}[op_label]
+    lam = 1e8
+    if op == "bg":
+        exp = st.slider("Background stiffness  ·  λ = 10^(this)",
+                        5.0, 11.0, 8.0, 0.1, key="link_bg_lam",
+                        help="Higher = flatter background that leaves the "
+                             "broad band intact; lower removes more "
+                             "structure. Same control as the standalone "
+                             "UV-Vis view.")
+        lam = 10.0 ** exp
+
+    try:
+        wl_v, spectra_v, ylabel = _uvvis_process(wl, spectra, op, lam, lo, hi)
+    except Exception as exc:                        # noqa: BLE001
+        st.error(f"Background fit failed: {exc}")
+        return
 
     comp = _link_component(_LINK_VER)
     comp(ot=tmin.astype(float).tolist(), ov=volt.astype(float).tolist(),
          wl=np.asarray(wl_v, float).tolist(),
          sp=[np.asarray(r, float).tolist() for r in spectra_v],
          spt=[float(t) for t in spec_t], sn=[str(n) for n in names],
-         title=title, key="link_view", default=None)
+         title=title, yl=ylabel, key="link_view", default=None)
 
     # ---- time map + downloads -------------------------------------------- #
     tmap = pd.DataFrame({"Spectrum": names, "Time (min)": np.round(spec_t, 3)})
