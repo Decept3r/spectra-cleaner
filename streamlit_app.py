@@ -991,27 +991,50 @@ def _ocp_template_data(df):
     scol = _pick_col(cols, ["time (s)", "(s)", "second"])
     if vcol is None:
         return None, None, None, "no voltage / potential column found"
-    volt = pd.to_numeric(df[vcol], errors="coerce").to_numpy(float)
+    # Everything below reads columns by POSITION, never by name: a header can
+    # carry labels that collide after trimming (e.g. "5 mM " and "5 mM" both
+    # become "5 mM"), and df["5 mM"] would then return several columns -- which
+    # makes each cell array-like and crashes pd.isna(cell).
+    vpos = cols.index(vcol)
+    volt = pd.to_numeric(df.iloc[:, vpos], errors="coerce").to_numpy(float)
     if mcol is not None:
-        tmin = pd.to_numeric(df[mcol], errors="coerce").to_numpy(float)
+        tmin = pd.to_numeric(df.iloc[:, cols.index(mcol)],
+                             errors="coerce").to_numpy(float)
     elif scol is not None:
-        tmin = pd.to_numeric(df[scol], errors="coerce").to_numpy(float) / 60.0
+        tmin = pd.to_numeric(df.iloc[:, cols.index(scol)],
+                             errors="coerce").to_numpy(float) / 60.0
     else:
         return None, None, None, "no time column (Time (min) or Time (s))"
-    ann = [c for c in cols if c not in (vcol, mcol, scol)]
+
+    # Drop empty rows (e.g. a template saved through Excel is padded out to
+    # ~1,048,576 blank rows) so the curve is just the real data.
+    valid = np.isfinite(tmin) & np.isfinite(volt)
+    if int(np.count_nonzero(valid)) < 2:
+        return None, None, None, "no numeric Time / Voltage rows found"
+    tmin, volt = tmin[valid], volt[valid]
+
+    skip = {vpos}
+    if mcol is not None:
+        skip.add(cols.index(mcol))
+    if scol is not None:
+        skip.add(cols.index(scol))
+    ann_pos = [i for i in range(len(cols)) if i not in skip]
     additions = []
     # The row an entry sits in is only a placeholder -- the real minute is
-    # chosen later by dragging.  Walk row-major so additions keep the order
-    # they were typed in (top to bottom, left to right within a row).
-    for r in range(len(df)):
-        for c in ann:
-            cell = df[c].iloc[r]
-            if pd.isna(cell) or str(cell).strip() == "":
+    # chosen later by dragging. Scan only the filled cells (the template is
+    # mostly empty) in row-major order so additions keep the order they were
+    # typed in (top to bottom, left to right within a row).
+    if ann_pos:
+        filled = df.iloc[:, ann_pos].notna().to_numpy()
+        rows, locs = np.nonzero(filled)               # row-major (C) order
+        for r, loc in zip(rows.tolist(), locs.tolist()):
+            ci = ann_pos[loc]
+            raw = str(df.iat[r, ci]).strip()
+            if raw == "":
                 continue
-            raw = str(cell).strip()
             num = pd.to_numeric(raw, errors="coerce")
-            vol = (f"{num:g} µL" if pd.notna(num) else raw)
-            additions.append({"conc": c, "vol": vol})
+            vol = f"{num:g} µL" if pd.notna(num) else raw
+            additions.append({"conc": cols[ci], "vol": vol})
     return tmin, volt, additions, None
 
 
