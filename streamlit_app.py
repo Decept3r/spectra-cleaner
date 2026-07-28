@@ -986,15 +986,34 @@ def _ocp_template_data(df):
     df = df.copy()
     df.columns = [str(c).strip() for c in df.columns]
     cols = list(df.columns)
+
+    # Concentration headers must be unique. A repeated label -- or a stray
+    # leading/trailing space that disappears on trimming, so "5 mM " and
+    # "5 mM" become the same column -- can't be read cleanly, so say so plainly
+    # instead of failing with a cryptic pandas error.
+    seen, dupes = set(), []
+    for c in cols:
+        if c in seen and c not in dupes:
+            dupes.append(c)
+        seen.add(c)
+    if dupes:
+        listed = ", ".join('"%s"' % d for d in dupes[:4])
+        extra = "" if len(dupes) <= 4 else " (and %d more)" % (len(dupes) - 4)
+        return (None, None, None,
+                "two or more columns share the same name after trimming spaces "
+                "— " + listed + extra + ". Each concentration column needs "
+                "a unique header, so this usually means a heading was repeated "
+                "or one has a stray space (for example \"5 mM \" and \"5 mM\" "
+                "count as the same column). Give the duplicate columns distinct "
+                "names and re-upload")
+
     vcol = _pick_col(cols, ["voltage", "potential", "(v)"])
     mcol = _pick_col(cols, ["time (min)", "min"])
     scol = _pick_col(cols, ["time (s)", "(s)", "second"])
     if vcol is None:
         return None, None, None, "no voltage / potential column found"
-    # Everything below reads columns by POSITION, never by name: a header can
-    # carry labels that collide after trimming (e.g. "5 mM " and "5 mM" both
-    # become "5 mM"), and df["5 mM"] would then return several columns -- which
-    # makes each cell array-like and crashes pd.isna(cell).
+    # Duplicate headers are rejected above, so reading columns by position here
+    # is just robust, index-agnostic access (also needed for the row filter).
     vpos = cols.index(vcol)
     volt = pd.to_numeric(df.iloc[:, vpos], errors="coerce").to_numpy(float)
     if mcol is not None:
