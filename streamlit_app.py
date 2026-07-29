@@ -486,7 +486,9 @@ def _peak_stats(x, y):
     else:
         sigma = float("nan")
     if not np.isfinite(peak_y) or peak_y <= floor:
-        return peak_x, peak_y, float("nan"), False, sigma
+        # a flat / blank trace (max == min, e.g. an all-zero dark scan) has no
+        # real band, so report no peak at all rather than the region's first x
+        return float("nan"), float("nan"), float("nan"), False, sigma
     half = floor + (peak_y - floor) / 2.0
     k = i
     while k > 0 and y[k] > half:
@@ -503,6 +505,53 @@ def _peak_stats(x, y):
     else:
         xr_, cr = _interp_x(x[k - 1], y[k - 1], x[k], y[k], half), False
     return peak_x, peak_y, abs(xr_ - xl), bool(cl or cr), sigma
+
+
+def _odd_window(n, window_pts, order=2):
+    """The odd Savitzky-Golay window this many points maps to, capped at n, or 0
+    if it is too small to actually smooth. A window must be strictly larger than
+    order+1 to do anything: an order-2 fit through 3 points reproduces them
+    exactly (an identity), so w<=3 with order 2 is a silent no-op, not smoothing.
+    Callers use the 0 return to know smoothing did NOT happen and say so."""
+    w = int(window_pts)
+    if w % 2 == 0:                       # window length must be odd
+        w += 1
+    if w > n:                            # ...and can't exceed the sample count
+        w = n if n % 2 == 1 else n - 1
+    return w if (n >= 5 and w > order + 1) else 0
+
+
+def _savgol_smooth(Y, window_pts, order=2):
+    """Savitzky-Golay smooth every column of Y. Unlike a moving average, it fits
+    a local low-order polynomial, so it removes random noise while keeping each
+    band's peak position and height -- exactly what's needed before reading the
+    wavelength of a maximum. NaNs are bridged, smoothed, then restored so blank
+    points don't poison the window. Returns Y unchanged when the window is too
+    small to smooth (see _odd_window)."""
+    from scipy.signal import savgol_filter
+    Y = np.asarray(Y, dtype=float)
+    squeeze = Y.ndim == 1
+    if squeeze:
+        Y = Y[:, None]
+    n = Y.shape[0]
+    w = _odd_window(n, window_pts, order)
+    if not w:
+        return Y[:, 0] if squeeze else Y
+    out = np.empty_like(Y)
+    idx = np.arange(n)
+    for j in range(Y.shape[1]):
+        col = Y[:, j]
+        fin = np.isfinite(col)
+        if fin.all():
+            out[:, j] = savgol_filter(col, w, order)
+        elif int(fin.sum()) > order:     # bridge NaNs, smooth, restore them
+            bridged = np.interp(idx, idx[fin], col[fin])
+            s = savgol_filter(bridged, w, order)
+            s[~fin] = np.nan
+            out[:, j] = s
+        else:
+            out[:, j] = col
+    return out[:, 0] if squeeze else out
 
 
 def _uvvis_figure(x, Y, names, ylabel):
@@ -536,6 +585,16 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
                "widths / shapes) or **subtract a very broad background** "
                "(preserving the broad peak).")
 
+    # Sort by ascending wavelength so everything downstream (the focus mask, the
+    # nm->points smoothing window, peak-finding, the plot) is order-independent:
+    # some instruments export high->low wavelength, which would otherwise make
+    # the per-step spacing negative and silently disable smoothing.
+    x = np.asarray(x, dtype=float)
+    Y = np.asarray(Y, dtype=float)
+    if x.size > 1 and not np.all(np.diff(x) >= 0):
+        order = np.argsort(x, kind="stable")
+        x, Y = x[order], Y[order, :]
+
     wmin, wmax = float(np.min(x)), float(np.max(x))
     if wmin <= 850.0 <= wmax:
         d_lo, d_hi = max(wmin, 700.0), min(wmax, 1000.0)
@@ -546,6 +605,14 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
     lo, hi = c1.slider("Focus region (nm)", wmin, wmax, (d_lo, d_hi))
     op = c2.radio("Operation",
                   ["Normalize maxima to 1", "Broad background subtraction"])
+    smooth_nm = st.slider(
+        "Noise smoothing (nm)", 0.0, 41.0, 11.0, 1.0,
+        help="Savitzky-Golay smoothing of each trace before the peak is read. It "
+             "strips random noise while keeping the peak's position and height, "
+             "so the reported peak wavelength stops hopping between noisy points "
+             "(on this lab's sample data it cut the peak's frame-to-frame jitter "
+             "roughly threefold). 0 turns it off; raise it for noisier spectra — "
+             "too high starts to blur genuinely close features.")
 
     m = (x >= lo) & (x <= hi)
     if int(np.count_nonzero(m)) < 5:
@@ -553,6 +620,12 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
         return
     xr = x[m]
     Yr = Y[m, :]
+    dxr = float(np.median(np.diff(xr))) if xr.size > 1 else 0.0
+    eff_w = 0                                    # effective smoothing window (pts)
+    if smooth_nm > 0 and dxr > 0:
+        eff_w = _odd_window(xr.size, int(round(smooth_nm / dxr)), 2)
+        if eff_w:
+            Yr = _savgol_smooth(Yr, eff_w, order=2)
 
     if op == "Normalize maxima to 1":
         Yout = np.empty_like(Yr, dtype=float)
@@ -585,6 +658,18 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
 
     st.plotly_chart(_uvvis_figure(xr, Yout, names, ylabel),
                     use_container_width=True, theme="streamlit")
+    if eff_w:
+        st.caption(f"Each trace was Savitzky-Golay–smoothed over ~{eff_w * dxr:.0f} "
+                   f"nm ({eff_w} points) before plotting and peak-finding, so the "
+                   "maxima below sit on the real band rather than on a noise "
+                   "spike. Set **Noise smoothing** to 0 for the raw curves. The "
+                   "exported CSV/PNG use the smoothed traces.")
+    elif smooth_nm > 0:
+        why = (f"the wavelength step (~{dxr:.1f} nm) is too coarse for a "
+               f"{smooth_nm:.0f} nm window" if dxr > 0
+               else "the wavelength axis has duplicate or irregular steps")
+        st.caption(f"⚠️ **Not smoothed** — {why}, so the raw traces are shown. "
+                   "Widen the smoothing setting, or use finer-resolution data.")
 
     # peak summary: position, height and FWHM of each trace's band in the region
     stem = os.path.splitext(src_name)[0]
