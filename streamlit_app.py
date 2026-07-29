@@ -1411,45 +1411,62 @@ def _ocp_filled(df, stem):
     _ocp_render(tmin, volt, additions, stem)
 
 
-def _ocp_auto_markers(tmin, volt, drop):
-    """Times of the peaks that immediately precede each big downward step in the
-    OCP curve. A 'big drop' is a fall of at least `drop` volts from a running
-    peak; the search re-arms only once the potential RECOVERS by half that off
-    the trough. So it finds one peak per drop whenever the signal rebounds
-    between additions -- a flat shelf mid-descent won't split a drop in two, and
-    a pure monotonic step-down (no recovery at all) yields just the first peak."""
+def _ocp_auto_markers(tmin, volt, sensitivity=8.0, min_gap_min=0.20,
+                      smooth_s=8.0):
+    """Times of the peaks that sit just before each downward step (a reagent
+    addition) in an OCP curve.
+
+    Rather than a single fixed voltage threshold -- which can't cope when the
+    early drops are volts deep and the later ones only millivolts -- this looks
+    at the *rate of fall* and flags every step that falls markedly faster than
+    the curve's own typical descent. That makes it scale-adaptive: it catches
+    both the big early drops and the small late ones. For each fall it then
+    reports the local maximum just before it (the peak the human would mark).
+
+    Tunables:
+      sensitivity  1-10, higher finds more (and smaller) drops.
+      min_gap_min  shortest allowed spacing between two markers, in minutes.
+      smooth_s     smoothing window in seconds (tames noise before detection).
+    """
     t = np.asarray(tmin, float)
     v = np.asarray(volt, float)
     n = t.size
-    if n < 5 or not (drop > 0):
+    if n < 5:
         return []
-    w = max(3, (int(round(n * 0.004)) | 1))          # light smoothing, odd window
-    pad = w // 2                                      # edge-pad so the moving
-    vs = np.convolve(np.pad(v, pad, mode="edge"),     # average isn't biased high
-                     np.ones(w) / w, mode="valid")    # at the very first points
-    rearm = drop * 0.5                               # recovery needed to re-arm
+    dt = float(np.median(np.diff(t)))
+    if not (dt > 0):
+        return []
+    # higher sensitivity -> lower drop-rate threshold -> more markers
+    mult = float(np.interp(np.clip(sensitivity, 1.0, 10.0),
+                           [1.0, 10.0], [6.0, 1.3]))
+    # smooth_s is in seconds; dt is in minutes -> convert before sizing the window
+    w = max(3, int(round(smooth_s / (dt * 60.0))) | 1)  # odd smoothing window
+    pad = w // 2                                       # edge-pad so the moving
+    vs = np.convolve(np.pad(v, pad, mode="edge"),      # average isn't biased at
+                     np.ones(w) / w, mode="valid")     # the very first points
+    fall = np.maximum(-np.diff(vs), 0.0)               # per-sample downward step
+    pos = fall[fall > 1e-12]
+    if pos.size == 0:
+        return []
+    thr = max(mult * float(np.median(pos)), 1e-12)     # scale-adaptive threshold
+    dist = max(1, int(round(min_gap_min / dt)))
+    back = max(2, int(round(min(0.20, max(0.05, min_gap_min)) / dt)))
+    # local maxima of the fall rate above the threshold, tallest fall first
+    loc = np.where((fall[1:-1] >= fall[:-2]) &
+                   (fall[1:-1] > fall[2:]) &
+                   (fall[1:-1] > thr))[0] + 1
+    loc = loc[np.argsort(-fall[loc])]                  # tallest falls win ties
+    taken = np.zeros(vs.size, bool)                    # enforce min gap on markers
     peaks = []
-    mx = vs[0]
-    mxi = 0
-    mn = vs[0]
-    mni = 0
-    seek_peak = True
-    for i in range(1, n):
-        x = vs[i]
-        if seek_peak:
-            if x > mx:
-                mx, mxi = x, i
-            if mx - x >= drop:                       # fell `drop` from the peak
-                peaks.append(mxi)
-                seek_peak = False
-                mn, mni = x, i
-        else:
-            if x < mn:                               # track the trough
-                mn, mni = x, i
-            if x - mn >= rearm:                      # recovered off the trough
-                seek_peak = True
-                mx, mxi = x, i
-    return sorted(float(t[p]) for p in peaks)
+    for i in loc:
+        a = max(0, i - back)
+        p = a + int(np.argmax(vs[a:i + 1]))            # peak just before the fall
+        lo = max(0, p - dist)
+        hi = min(vs.size, p + dist + 1)
+        if not taken[lo:hi].any():                     # keep only if >= dist away
+            peaks.append(p)
+            taken[p] = True
+    return sorted(set(float(t[p]) for p in peaks))
 
 
 def _ocp_render(tmin, volt, additions, stem, preset=None):
@@ -1542,35 +1559,36 @@ def _ocp_render(tmin, volt, additions, stem, preset=None):
         "Marker start positions",
         ["Evenly spread", "Auto — peaks before big drops"],
         key="ocp_place",
-        help="Evenly spread: markers start equally spaced. Auto: put marker "
-             "1 at the peak just before the first big drop in potential, "
-             "marker 2 before the second drop, and so on — works best when the "
-             "potential recovers a little between drops. Either way you can "
-             "drag each marker afterwards.")
+        help="Evenly spread: markers start equally spaced. Auto: put a marker "
+             "at the peak just before each downward step in potential — the "
+             "sliders on the right tune how many drops are picked up and how "
+             "close together they may sit. Either way you can drag, add or "
+             "delete markers afterwards.")
     auto = pmode.startswith("Auto")
-    auto_times, drop_thr = None, None
+    auto_times, sens, gap = None, None, None
     if auto:
-        vspan = float(vmax - vmin)
-        if vspan <= 0:
-            vspan = 1.0
-        lo_thr = max(round(vspan * 0.01, 4), 0.001)
-        hi_thr = max(round(vspan, 3), lo_thr + 0.001)
-        step_thr = max(round(vspan / 200.0, 4), 0.0001)
-        dkey = "ocp_drop_" + hashlib.md5(
-            f"{n}|{round(tlo, 3)}|{round(thi, 3)}|{round(vspan, 4)}"
+        skey = "ocp_sens_" + hashlib.md5(
+            f"{n}|{round(tlo, 3)}|{round(thi, 3)}|{round(float(vmax - vmin), 4)}"
             .encode("utf-8")).hexdigest()[:8]
-        st.session_state.setdefault(
-            dkey, min(max(round(vspan * 0.1, 4), lo_thr), hi_thr))
-        drop_thr = q2.slider(
-            "Big-drop threshold (V)", min_value=lo_thr, max_value=hi_thr,
-            step=step_thr, key=dkey,
-            help="A marker is placed at the peak just before every fall in "
-                 "potential of at least this size. Raise it to keep only the "
-                 "biggest drops; lower it to catch smaller ones.")
-        auto_times = _ocp_auto_markers(tx, vx, float(drop_thr))
-        note = f"Found **{len(auto_times)}** big drop(s) for **{n}** marker(s)."
+        st.session_state.setdefault(skey, 8.0)
+        st.session_state.setdefault(skey + "_gap", 0.20)
+        sens = q2.slider(
+            "Detection sensitivity", min_value=1.0, max_value=10.0, step=0.5,
+            key=skey,
+            help="Higher finds more — and smaller — drops; lower keeps only the "
+                 "sharpest, most prominent ones. Each fall is judged against the "
+                 "curve's own typical descent, so it works whether the drops are "
+                 "volts or millivolts deep.")
+        gap = q2.slider(
+            "Minimum spacing between markers (min)", min_value=0.05,
+            max_value=2.0, step=0.05, key=skey + "_gap",
+            help="Two auto-markers can't land closer than this in time. Raise it "
+                 "if markers bunch up; lower it if closely spaced additions are "
+                 "being merged into one.")
+        auto_times = _ocp_auto_markers(tx, vx, float(sens), float(gap))
+        note = f"Found **{len(auto_times)}** drop(s) for **{n}** marker(s)."
         if len(auto_times) != n:
-            note += " Tune the threshold to match — extra markers stay draggable."
+            note += " Tune sensitivity to match — extra markers stay draggable."
         q2.caption(note)
 
     st.caption("**Drag each marker left/right to the minute the addition was "
@@ -1584,7 +1602,8 @@ def _ocp_render(tmin, volt, additions, stem, preset=None):
 
     even = [tlo + tspan * (i + 0.5) / n for i in range(n)]
     full_sig = sig + ((auto,
-                       round(float(drop_thr), 6) if drop_thr is not None else None),)
+                       round(float(sens), 3) if sens is not None else None,
+                       round(float(gap), 3) if gap is not None else None),)
     if fresh:
         st.session_state["_ocp_mx"] = [float(m) for m in preset["mins"]]
         st.session_state["_ocp_sig"] = full_sig
