@@ -468,8 +468,16 @@ def _peak_stats(x, y):
     i = int(np.nanargmax(y))
     peak_x, peak_y = float(x[i]), float(y[i])
     floor = float(np.nanmin(y))
-    # intensity-weighted standard deviation of wavelength (RMS band width)
-    w = np.where(np.isfinite(y), np.clip(y - floor, 0.0, None), 0.0)
+    # Intensity-weighted standard deviation of wavelength (RMS band width),
+    # measured above a straight baseline through the region edges so a sloping
+    # scattering background doesn't pedestal far-off points and inflate it.
+    y0 = float(y[0]) if np.isfinite(y[0]) else floor
+    yN = float(y[-1]) if np.isfinite(y[-1]) else floor
+    if x.size >= 2 and x[-1] != x[0]:
+        base = y0 + (yN - y0) * (x - x[0]) / (x[-1] - x[0])
+    else:
+        base = np.full_like(y, floor)
+    w = np.where(np.isfinite(y), np.clip(y - base, 0.0, None), 0.0)
     wsum = float(w.sum())
     if wsum > 0:
         mu = float((x * w).sum() / wsum)
@@ -1406,8 +1414,10 @@ def _ocp_filled(df, stem):
 def _ocp_auto_markers(tmin, volt, drop):
     """Times of the peaks that immediately precede each big downward step in the
     OCP curve. A 'big drop' is a fall of at least `drop` volts from a running
-    peak; the search re-arms once the signal recovers or the trough flattens, so
-    it works whether the potential rebounds between additions or steps down."""
+    peak; the search re-arms only once the potential RECOVERS by half that off
+    the trough. So it finds one peak per drop whenever the signal rebounds
+    between additions -- a flat shelf mid-descent won't split a drop in two, and
+    a pure monotonic step-down (no recovery at all) yields just the first peak."""
     t = np.asarray(tmin, float)
     v = np.asarray(volt, float)
     n = t.size
@@ -1417,7 +1427,7 @@ def _ocp_auto_markers(tmin, volt, drop):
     pad = w // 2                                      # edge-pad so the moving
     vs = np.convolve(np.pad(v, pad, mode="edge"),     # average isn't biased high
                      np.ones(w) / w, mode="valid")    # at the very first points
-    plateau = max(3, int(round(n * 0.01)))           # a flat trough ends a drop
+    rearm = drop * 0.5                               # recovery needed to re-arm
     peaks = []
     mx = vs[0]
     mxi = 0
@@ -1434,9 +1444,9 @@ def _ocp_auto_markers(tmin, volt, drop):
                 seek_peak = False
                 mn, mni = x, i
         else:
-            if x < mn:
+            if x < mn:                               # track the trough
                 mn, mni = x, i
-            if (x - mn >= drop) or (i - mni >= plateau):
+            if x - mn >= rearm:                      # recovered off the trough
                 seek_peak = True
                 mx, mxi = x, i
     return sorted(float(t[p]) for p in peaks)
@@ -1534,7 +1544,8 @@ def _ocp_render(tmin, volt, additions, stem, preset=None):
         key="ocp_place",
         help="Evenly spread: markers start equally spaced. Auto: put marker "
              "1 at the peak just before the first big drop in potential, "
-             "marker 2 before the second drop, and so on. Either way you can "
+             "marker 2 before the second drop, and so on — works best when the "
+             "potential recovers a little between drops. Either way you can "
              "drag each marker afterwards.")
     auto = pmode.startswith("Auto")
     auto_times, drop_thr = None, None
