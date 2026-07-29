@@ -456,17 +456,29 @@ def _interp_x(x0, y0, x1, y1, level):
 
 
 def _peak_stats(x, y):
-    """For one trace over x return (peak_x, peak_y, fwhm, clipped). FWHM is the
-    width at half-height above the in-region minimum; `clipped` is True when the
-    trace never falls back to half-height inside the region."""
+    """For one trace over x return (peak_x, peak_y, fwhm, clipped, sigma).
+    FWHM is the width at half-height above the in-region minimum; `clipped`
+    is True when the trace never falls back to half-height inside the region.
+    `sigma` is the intensity-weighted standard deviation of wavelength over
+    the region -- the RMS band width (for a Gaussian, FWHM = 2.3548*sigma)."""
+    x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
     if y.size == 0 or not np.isfinite(y).any():
-        return float("nan"), float("nan"), float("nan"), False
+        return float("nan"), float("nan"), float("nan"), False, float("nan")
     i = int(np.nanargmax(y))
     peak_x, peak_y = float(x[i]), float(y[i])
     floor = float(np.nanmin(y))
+    # intensity-weighted standard deviation of wavelength (RMS band width)
+    w = np.where(np.isfinite(y), np.clip(y - floor, 0.0, None), 0.0)
+    wsum = float(w.sum())
+    if wsum > 0:
+        mu = float((x * w).sum() / wsum)
+        var = float((w * (x - mu) ** 2).sum() / wsum)
+        sigma = float(np.sqrt(var)) if var > 0 else 0.0
+    else:
+        sigma = float("nan")
     if not np.isfinite(peak_y) or peak_y <= floor:
-        return peak_x, peak_y, float("nan"), False
+        return peak_x, peak_y, float("nan"), False, sigma
     half = floor + (peak_y - floor) / 2.0
     k = i
     while k > 0 and y[k] > half:
@@ -482,7 +494,7 @@ def _peak_stats(x, y):
         xr_, cr = float(x[-1]), True
     else:
         xr_, cr = _interp_x(x[k - 1], y[k - 1], x[k], y[k], half), False
-    return peak_x, peak_y, abs(xr_ - xl), bool(cl or cr)
+    return peak_x, peak_y, abs(xr_ - xl), bool(cl or cr), sigma
 
 
 def _uvvis_figure(x, Y, names, ylabel):
@@ -570,21 +582,24 @@ def uvvis_analysis(x, Y, names, x_col, src_name):
     stem = os.path.splitext(src_name)[0]
     rows = []
     for j, nm in enumerate(names):
-        px, py, fw, clip = _peak_stats(xr, Yout[:, j])
+        px, py, fw, clip, sig = _peak_stats(xr, Yout[:, j])
         rows.append({
             "Series": str(nm),
             "Peak (nm)": round(px, 1) if np.isfinite(px) else None,
             "Peak value": round(py, 4) if np.isfinite(py) else None,
             "FWHM (nm)": (f"≥ {fw:.1f}" if clip else round(fw, 1))
                          if np.isfinite(fw) else None,
+            "Std dev (nm)": round(sig, 1) if np.isfinite(sig) else None,
         })
     summary = pd.DataFrame(rows)
     st.markdown("**Peak summary**")
     st.dataframe(summary, use_container_width=True, hide_index=True)
     st.caption("Peak = wavelength of each trace's maximum in the region; FWHM is "
-               "measured at half-height above the in-region background. “≥” marks a "
-               "peak that doesn't fall back to half-height inside the region — widen "
-               "the focus region for its true width.")
+               "measured at half-height above the in-region background; Std dev is "
+               "the intensity-weighted standard deviation of wavelength (RMS band "
+               "width — for a Gaussian, FWHM ≈ 2.35 × Std dev). Both use the focus "
+               "region. “≥” marks a peak that doesn't fall back to half-height "
+               "inside the region — widen the focus region for its true width.")
 
     out = pd.DataFrame({x_col: xr})
     for j, n in enumerate(names):
@@ -1388,6 +1403,45 @@ def _ocp_filled(df, stem):
     _ocp_render(tmin, volt, additions, stem)
 
 
+def _ocp_auto_markers(tmin, volt, drop):
+    """Times of the peaks that immediately precede each big downward step in the
+    OCP curve. A 'big drop' is a fall of at least `drop` volts from a running
+    peak; the search re-arms once the signal recovers or the trough flattens, so
+    it works whether the potential rebounds between additions or steps down."""
+    t = np.asarray(tmin, float)
+    v = np.asarray(volt, float)
+    n = t.size
+    if n < 5 or not (drop > 0):
+        return []
+    w = max(3, (int(round(n * 0.004)) | 1))          # light smoothing, odd window
+    pad = w // 2                                      # edge-pad so the moving
+    vs = np.convolve(np.pad(v, pad, mode="edge"),     # average isn't biased high
+                     np.ones(w) / w, mode="valid")    # at the very first points
+    plateau = max(3, int(round(n * 0.01)))           # a flat trough ends a drop
+    peaks = []
+    mx = vs[0]
+    mxi = 0
+    mn = vs[0]
+    mni = 0
+    seek_peak = True
+    for i in range(1, n):
+        x = vs[i]
+        if seek_peak:
+            if x > mx:
+                mx, mxi = x, i
+            if mx - x >= drop:                       # fell `drop` from the peak
+                peaks.append(mxi)
+                seek_peak = False
+                mn, mni = x, i
+        else:
+            if x < mn:
+                mn, mni = x, i
+            if (x - mn >= drop) or (i - mni >= plateau):
+                seek_peak = True
+                mx, mxi = x, i
+    return sorted(float(t[p]) for p in peaks)
+
+
 def _ocp_render(tmin, volt, additions, stem, preset=None):
     """Draw the annotated drag-to-position graph. When `preset` is given (a
     reloaded project) its marker minutes, symbols, title, lift and band are
@@ -1471,26 +1525,75 @@ def _ocp_render(tmin, volt, additions, stem, preset=None):
                           "you drag it.")
     off = (lift / 100.0) * (vmax - vmin)
 
+    # Where the markers start: evenly, or auto at the peak before each big drop.
+    st.session_state.setdefault("ocp_place", "Evenly spread")
+    q1, q2 = st.columns([1.3, 1.7])
+    pmode = q1.radio(
+        "Marker start positions",
+        ["Evenly spread", "Auto — peaks before big drops"],
+        key="ocp_place",
+        help="Evenly spread: markers start equally spaced. Auto: put marker "
+             "1 at the peak just before the first big drop in potential, "
+             "marker 2 before the second drop, and so on. Either way you can "
+             "drag each marker afterwards.")
+    auto = pmode.startswith("Auto")
+    auto_times, drop_thr = None, None
+    if auto:
+        vspan = float(vmax - vmin)
+        if vspan <= 0:
+            vspan = 1.0
+        lo_thr = max(round(vspan * 0.01, 4), 0.001)
+        hi_thr = max(round(vspan, 3), lo_thr + 0.001)
+        step_thr = max(round(vspan / 200.0, 4), 0.0001)
+        dkey = "ocp_drop_" + hashlib.md5(
+            f"{n}|{round(tlo, 3)}|{round(thi, 3)}|{round(vspan, 4)}"
+            .encode("utf-8")).hexdigest()[:8]
+        st.session_state.setdefault(
+            dkey, min(max(round(vspan * 0.1, 4), lo_thr), hi_thr))
+        drop_thr = q2.slider(
+            "Big-drop threshold (V)", min_value=lo_thr, max_value=hi_thr,
+            step=step_thr, key=dkey,
+            help="A marker is placed at the peak just before every fall in "
+                 "potential of at least this size. Raise it to keep only the "
+                 "biggest drops; lower it to catch smaller ones.")
+        auto_times = _ocp_auto_markers(tx, vx, float(drop_thr))
+        note = f"Found **{len(auto_times)}** big drop(s) for **{n}** marker(s)."
+        if len(auto_times) != n:
+            note += " Tune the threshold to match — extra markers stay draggable."
+        q2.caption(note)
+
     st.caption("**Drag each marker left/right to the minute the addition was "
                "actually made** — move as many as you like, then click "
                "**✓ Apply moves** (top-left of the chart) to save them; the "
-               "table and downloads update then. Use the chart toolbar (or drag "
-               "a box over empty space) to **zoom into any region — horizontally "
-               "in time and vertically in potential**, then double-click to zoom "
-               "back out.")
+               "table and downloads update then. Markers start evenly spread — "
+               "or, with **Auto**, at the peak before each big drop in "
+               "potential. Use the chart toolbar (or drag a box over empty "
+               "space) to **zoom into any region — horizontally in time and "
+               "vertically in potential**, then double-click to zoom out.")
 
+    even = [tlo + tspan * (i + 0.5) / n for i in range(n)]
+    full_sig = sig + ((auto,
+                       round(float(drop_thr), 6) if drop_thr is not None else None),)
     if fresh:
         st.session_state["_ocp_mx"] = [float(m) for m in preset["mins"]]
-        st.session_state["_ocp_sig"] = sig
+        st.session_state["_ocp_sig"] = full_sig
         st.session_state["_ocp_seed"] = st.session_state.get("_ocp_seed", 0) + 1
-    if st.session_state.get("_ocp_sig") != sig:
-        st.session_state["_ocp_sig"] = sig
-        st.session_state["_ocp_mx"] = [tlo + tspan * (i + 0.5) / n
-                                       for i in range(n)]
+    elif st.session_state.get("_ocp_sig") != full_sig:
+        st.session_state["_ocp_sig"] = full_sig
+        if auto and auto_times:
+            base = list(auto_times[:n])
+            rem = n - len(base)
+            if rem > 0:                       # spread extras after the last peak
+                start = base[-1] if base else tlo
+                base += [start + (thi - start) * (j + 1) / (rem + 1)
+                         for j in range(rem)]
+            st.session_state["_ocp_mx"] = [float(x) for x in base]
+        else:
+            st.session_state["_ocp_mx"] = even
         st.session_state["_ocp_seed"] = st.session_state.get("_ocp_seed", 0) + 1
     mx = [float(v) for v in st.session_state["_ocp_mx"]]
     if len(mx) != n:
-        mx = [tlo + tspan * (i + 0.5) / n for i in range(n)]
+        mx = even
         st.session_state["_ocp_mx"] = mx
 
     comp = _ocp_component(_OCP_VER)
